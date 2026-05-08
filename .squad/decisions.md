@@ -86,7 +86,7 @@ Per RFC 8252 §8.3, these are NOT equivalent. **This is the most likely root cau
 
 1. **No server source code in repo** — MCP server source is deployed to Azure Web App `cloud-helper-mcp.azurewebsites.net` but not in this repository. Cannot audit `/token` implementation details, CORS config, or PKCE validation from code alone.
 
-2. **Azure Web App has IP restriction** — All direct probes from investigation machine (70.231.17.250) blocked with `403 Ip Forbidden`. Does not prevent customer's clients but limits server-side investigation. Amos must verify IP allowlist includes legitimate client IPs.
+2. **Azure Web App has IP restriction (secondary finding)** — All direct probes from investigation machine (IP: 70.231.17.250) blocked with `403 Ip Forbidden`. Does not prevent customer's clients but limits server-side investigation. Amos must verify IP allowlist includes legitimate client IPs.
 
 3. **Server architecture confirmed as pass-through proxy** — Client POSTs to server's `/token`, server exchanges code with Entra, server returns token to client. This matches MCP OAuth spec.
 
@@ -155,6 +155,23 @@ az webapp cors add --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp 
 ```
 
 **Note:** Direct CLI reads failed due to missing subscription access on this machine. These commands must be run by someone with access to "Cloud Brokers - ASC Testing" subscription (Valeria or resource owner).
+
+---
+
+### D7: Cross-agent confirmation: H1 validated by 3 independent sources
+**Date:** 2026-05-08T17:50:48Z  
+**Status:** CONFIRMED
+
+**H1 (HIGH) is now confirmed by:**
+
+1. **Holden** (Lead Analysis): RFC 8252 §8.3 theoretical analysis — redirect URI `127.0.0.1` vs `localhost` are distinct per standard
+2. **Naomi** (Code Audit): Confirmed in test client source — `client/test_oauth_client.py` explicitly binds to `127.0.0.1` while Entra registration lists only `http://localhost`
+3. **Amos** (Entra Config): Confirmed in actual Entra app registration — `http://127.0.0.1` is **NOT in registered redirect URIs**, only `http://localhost` is registered
+
+**Secondary Finding: IP Allowlisting**
+- Naomi discovered that Azure Web App blocks external IPs (70.231.17.250 returns 403 Ip Forbidden)
+- This is a separate operational issue but not the cause of the OAuth flow hang
+- Should be addressed during remediation to enable diagnostic probes
 
 ## Governance
 

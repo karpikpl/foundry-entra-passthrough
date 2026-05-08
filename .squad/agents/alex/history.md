@@ -37,3 +37,12 @@
 **Key observation:** The `★` markers you added in the test client (at callback receipt and `/token` call) are exactly the right instrumentation. If a marker appears at callback but not at `/token` call, that proves the hang happens between callback receipt and token exchange.
 
 **See:** `.squad/decisions.md` for full hypothesis list and work plan
+
+### 2026-05-08T17:50:48Z — CROSS-AGENT CONFIRMATION: H1 Validated by 3 Independent Sources
+
+**H1 (HIGH) is now CONFIRMED:**
+1. **Holden (Analysis):** RFC 8252 §8.3 — `127.0.0.1` ≠ `localhost`
+2. **Naomi (Code Audit):** Confirmed in test client code — binds to `127.0.0.1`
+3. **Amos (Entra Config):** Confirmed in app registration — `http://localhost` registered, `http://127.0.0.1` missing
+
+This is the PRIMARY root cause. Fix command ready: `az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" "http://127.0.0.1"` (awaiting execution in correct tenant).
