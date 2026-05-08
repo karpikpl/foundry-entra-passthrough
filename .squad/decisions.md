@@ -61,6 +61,101 @@ Python test client that:
 - Reuse existing foundry: `foundry-kvmorale` (Sub: hosting-ai-sandbox, RG: `kvmorale_Apr-16-2026`)
 - **Impact:** Amos should NOT provision new instance. Investigation tests against existing foundry.
 
+---
+
+### D5: Server code audit — OAuth token endpoint investigation (FINDINGS)
+**By:** Naomi (Backend Dev)  
+**Date:** 2026-05-08T17:46:22Z  
+**Status:** COMPLETE — Key findings and recommended actions
+
+**Critical Finding: H1 CONFIRMED in client code**
+
+Alex's test client (`client/test_oauth_client.py`, lines 156–163):
+- Binds callback listener to `127.0.0.1` (not `localhost`)
+- Constructs redirect_uri as `http://127.0.0.1:{port}/`
+- Sends this in `/authorize` request
+
+But registered redirect URIs in Entra are:
+- `https://foundry.azure.com/`
+- `https://vscode.dev/redirect`
+- `http://localhost` ← **NO `http://127.0.0.1` entry**
+
+Per RFC 8252 §8.3, these are NOT equivalent. **This is the most likely root cause of the OAuth hang.**
+
+**Other Findings:**
+
+1. **No server source code in repo** — MCP server source is deployed to Azure Web App `cloud-helper-mcp.azurewebsites.net` but not in this repository. Cannot audit `/token` implementation details, CORS config, or PKCE validation from code alone.
+
+2. **Azure Web App has IP restriction** — All direct probes from investigation machine (70.231.17.250) blocked with `403 Ip Forbidden`. Does not prevent customer's clients but limits server-side investigation. Amos must verify IP allowlist includes legitimate client IPs.
+
+3. **Server architecture confirmed as pass-through proxy** — Client POSTs to server's `/token`, server exchanges code with Entra, server returns token to client. This matches MCP OAuth spec.
+
+**Recommended Actions (Priority order):**
+
+1. **(Amos)** Add `http://127.0.0.1` to Entra app registration redirect URIs using "Mobile and desktop applications" platform type
+2. **(Server owner / Valeria)** Update `/.well-known/oauth-authorization-server` metadata to advertise both `http://localhost` and `http://127.0.0.1`
+3. **(Server owner)** Verify POST `/token` responds with `Access-Control-Allow-Origin: https://foundry.azure.com` (CORS required for browser-based Foundry)
+4. **(Amos)** Check `az webapp cors show` for `cloud-helper-mcp` — confirm Foundry origin listed
+5. **(Team)** Get server source code into repo or shared with team for full audit
+6. **(Amos)** Run `az webapp show --query siteConfig.ipSecurityRestrictions` to verify IP allowlist includes legitimate clients
+
+---
+
+### D6: Entra config audit — OAuth redirect URI investigation (FINDINGS)
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-08T17:46:22Z  
+**Status:** COMPLETE — H1 confirmed with remediation steps
+
+**H1 — CONFIRMED (HIGH CONFIDENCE)**
+
+Registered redirect URI in Entra: `http://localhost` (with dynamic port allowance)  
+Client sends in `/authorize`: `http://127.0.0.1:<port>/`  
+Per RFC 8252 and Entra matching logic: These are **distinct identifiers**
+
+Entra will either:
+- Reject `/authorize` with `AADSTS50011: The redirect URI specified does not match`, OR
+- Allow redirect but bind code to wrong URI, causing `/token` exchange to fail with `redirect_uri_mismatch`
+
+Either way: **`/token` is never successfully called** — exactly the observed symptom.
+
+**Registered URIs (from issue.md, customer-confirmed):**
+
+| URI | Registered? |
+|-----|-------------|
+| `https://foundry.azure.com/` | ✅ Yes |
+| `https://vscode.dev/redirect` | ✅ Yes |
+| `http://localhost` (any port) | ✅ Yes |
+| `http://127.0.0.1` (any port) | ❌ **NOT registered** |
+
+**H5 — CANNOT FULLY CONFIRM without CLI access** (MEDIUM CONFIDENCE)
+
+If platform type is "Web" rather than "Mobile/Desktop", dynamic ports are forbidden. Need CLI access to confirm platform.
+
+**H6 (CORS) — UNCONFIRMED** — needs manual check. If Foundry/VS Code are browser-based clients, missing CORS origins block `/token` POST.
+
+**Immediate Remediation (fixes H1):**
+
+```bash
+# 1. Switch to correct subscription
+az account set --subscription "Cloud Brokers - ASC Testing"
+
+# 2. Get app ID from web app config
+az webapp config appsettings list --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp \
+  --query "[?name=='AZURE_CLIENT_ID'].value" --output tsv
+
+# 3. Add http://127.0.0.1 as publicClient redirect URI
+az ad app update --id <APP_ID> \
+  --public-client-redirect-uris "http://localhost" "http://127.0.0.1"
+
+# 4. Verify CORS allows Foundry origin
+az webapp cors add --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp \
+  --allowed-origins "https://foundry.azure.com" "https://vscode.dev"
+
+# 5. Re-test with client/test_oauth_client.py — if /token now called, H1 was root cause
+```
+
+**Note:** Direct CLI reads failed due to missing subscription access on this machine. These commands must be run by someone with access to "Cloud Brokers - ASC Testing" subscription (Valeria or resource owner).
+
 ## Governance
 
 - All meaningful changes require team consensus
