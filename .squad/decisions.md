@@ -277,6 +277,26 @@ Always run `bicep build infra/main.bicep` (exit 0, no errors) before marking any
 
 ---
 
+### D15: Upgrade App Service SKU from B1 to S1
+**By:** Amos (Infrastructure / DevOps)  
+**Date:** 2026-05-09T01:09:08Z  
+**Status:** IMPLEMENTED  
+**Commit:** ba4bc9f
+
+**Summary:** Basic SKU (B1) does not support deployment slots. Upgraded `infra/modules/appService.bicep` to Standard S1 SKU to enable slot-based deployment strategy (repro on production slot, fixed on staging slot).
+
+**Changes:**
+1. Updated parameter description from "create new B1 plan" to "create new S1 plan"
+2. Changed SKU block from `name: 'B1'` / `tier: 'Basic'` to `name: 'S1'` / `tier: 'Standard'`
+3. Updated comment from "create B1" to "create S1"
+
+**Why S1?**
+Deployment slots (required for blue/green and repro/fixed strategies) are only available on Standard, Premium, and Isolated tiers. Basic (B1) and Free (F1) do not support slots.
+
+**Verification:** `bicep build infra/main.bicep` → exit 0 (clean compilation)
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
