@@ -211,6 +211,39 @@ az webapp cors add --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp 
 - **Amos:** production slot = repro (broken), staging slot = fixed
 - Do not treat slot-specific broken/fixed assignment as settled until Piotr chooses the canonical mapping.
 
+### D11: User directive — Bicep compilation gate
+**By:** Piotr Karpala (via Copilot)  
+**Date:** 2026-05-09T04:40:27Z  
+**Status:** ACTIVE
+
+Always run `bicep build infra/main.bicep` (exit 0, no errors) before marking any Bicep/infra task as done. Warnings are acceptable; errors are not. This applies to Amos and any agent touching infra/.
+
+**Context:** User request captured for team memory after azd provision failed due to unverified Bicep compilation errors.
+
+---
+
+### D12: Bicep compilation errors fixed — AZD provisioning unblocked
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-09T04:40:27Z  
+**Status:** COMPLETE  
+**Commit:** baf77c7
+
+**Summary:** Resolved the two Bicep compilation blockers that broke `azd provision`.
+
+1. **Microsoft Graph extension:** Switched `infra/bicepconfig.json` from unsupported `builtin:microsoftGraphV1` to the OCI-published extension reference:
+   `br:mcr.microsoft.com/bicep/extensions/microsoftgraph/v1.0:0.1.8-preview`
+   This works on Bicep CLI 0.42.1, so the fallback preprovision hook path was not required.
+
+2. **App Service duplicate config resources:** Removed the redundant `webAppSettings` resource from `infra/modules/appService.bicep`. `webAppStickyProd` already includes the full shared app settings set, so keeping both caused the duplicate `appsettings` resource-name collision.
+
+3. **Related cleanup:** Removed the unused `environmentName` parameter from `infra/modules/appService.bicep` and the unnecessary `dependsOn` from `infra/main.bicep`.
+
+**Verification:**
+- `az bicep build --file infra/main.bicep` → exit 0
+- `bicep build infra/main.bicep` → exit 0
+
+**Impact:** `azd provision` is no longer blocked by these compile-time Bicep errors.
+
 ## Governance
 
 - All meaningful changes require team consensus
