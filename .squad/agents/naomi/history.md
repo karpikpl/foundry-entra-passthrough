@@ -135,3 +135,17 @@ No remediation needed at infrastructure level. Ready for functional testing of O
 - Updated `client/pyproject.toml` to use `httpx` + `click`, refreshed `client/uv.lock`, and rewrote `client/README.md` for `uv run test_client.py repro|fixed`.
 - Updated repo-facing helper docs/scripts (`Makefile`, `scripts/README.md`, `scripts/fix-entra-redirect-uri.sh`, `scripts/provision-two-app-regs.sh`) so operator instructions point at the new client entrypoint.
 - Validation completed locally with `cd client && uv lock && uv sync && uv run python -m py_compile test_client.py && uv run test_client.py --help`.
+
+### 2026-05-09T16:34:45Z — Fixed Azure well-known route deployment/runtime mismatch
+
+- Read the actual server source first: `server.py` already mounted `/.well-known/*` on the root Starlette app. The bug was deployment/runtime, not route registration.
+- `startup.sh`, `config.py`, `pyproject.toml`, and `infra/modules/appService.bicep` in HEAD already reflected the intended fix path: App Service should start `server:app`, and config should tolerate `TENANT_ID`/`AZURE_TENANT_ID`.
+- Live Azure state was wrong: both prod and staging had empty `appCommandLine`, so App Service fell back to the default gunicorn hosting app (`hostingstart.html` on `/`, 404 on `/mcp` and `/.well-known/*`).
+- Live Azure state was also missing `TENANT_ID`; only `AZURE_TENANT_ID` was present. That would break imports if startup loaded the Starlette app directly.
+- Applied runtime fix with `az webapp config set` on prod + staging: `python -m uvicorn server:app --host 0.0.0.0 --port 8000`.
+- Added `TENANT_ID` as a slot-sticky app setting on prod + staging to match the app's required settings.
+- Deployed code to both slots with `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy` (completed) and `AZD_DEPLOY_SERVER_SLOT_NAME=production azd deploy` (timed out in azd wait loop, but prod came up healthy and served the fixed app).
+- Final verification:
+  - `https://cloud-helper-fastmcp.azurewebsites.net/.well-known/oauth-protected-resource` → 200 JSON via `uvicorn`
+  - `https://cloud-helper-fastmcp-staging.azurewebsites.net/.well-known/oauth-protected-resource` → 200 JSON via `uvicorn`
+  - `/mcp` on both slots → 401 JSON with Bearer challenge pointing at the correct `resource_metadata` URL
