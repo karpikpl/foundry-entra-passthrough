@@ -197,3 +197,476 @@ However, H2 is confirmed in the following sense: **VS Code and AI Foundry do NOT
 | `labs/mcp-prm-oauth` | `/home/pkarpala/projects/onsemi/ai-gateway-explore/labs/mcp-prm-oauth/` | APIM + RFC 9728 PRM, Entra AS | ✅ High — correct architecture for VS Code/Foundry |
 | MCP Python SDK `oauth_client.py` | `modelcontextprotocol/python-sdk/examples/snippets/clients/` | Loopback redirect, custom callback_handler | ⚠️ Medium — requires custom app, not VS Code/Foundry |
 | onsemi `src/mcp-server/auth.py` | `/home/pkarpala/projects/onsemi/src/mcp-server/auth.py` | OBO + Bearer validation | ✅ High — RS-mode MCP server with Entra auth |
+
+# Decision: RS-mode Entra App Registration Setup Script
+
+**Date:** 2026-05-08T22:48:54Z  
+**By:** Amos (Infra / DevOps)  
+**Status:** IMPLEMENTED  
+**File:** `.squad/decisions/inbox/amos-entra-rs-mode-script.md`
+
+---
+
+## Problem Statement
+
+The team is moving from **Authorization Server mode** (H1 fix: `fix-entra-redirect-uri.sh`) to **Resource Server mode** (RS-mode) per RFC 9728 (PRM). This is a fundamentally different Entra architecture:
+
+- **Previous (A-mode / H1 fix):** MCP server acts as OAuth authorization server. Clients redirect to `/authorize`, get a code, exchange code at `/token` endpoint on the server.
+- **New (RS-mode / Production):** MCP server acts as protected API. Clients get Bearer tokens directly from Entra ID, then POST those tokens to the server.
+
+The team discovered (D2 / Monica) that VS Code and AI Foundry already obtain tokens directly from Entra and **expect** RS-mode behavior. No redirect URI fix can work without moving the server to RS-mode.
+
+We needed a script to set up Entra for this architecture.
+
+---
+
+## Decision
+
+**Write `scripts/setup-entra-rs-mode.sh`** — A bash script that:
+
+1. **Creates or reuses** an Entra app registration (idempotent)
+2. **Sets Application ID URI** to `api://{client_id}` — identifies the resource server to Entra
+3. **Defines OAuth2 delegated permission scope** `mcp.access` — what clients request from Entra
+4. **Configures token version v2** — required for Bearer token validation
+5. **Accepts parameters** for tenant, subscription, app name, dry-run mode
+6. **Validates prereqs** (az CLI, logged in) before making changes
+7. **Prints summary** with environment variables and implementation guidance
+
+---
+
+## Key Design Decisions
+
+### 1. Idempotent by Default
+- Reads current app state before creating/updating
+- If app exists, reuses it (no duplicate registrations)
+- If scope already exists, skips creation
+- Safe to run multiple times
+
+### 2. No Hardcoded Values
+- `--tenant-id` and `--subscription` are optional but can be passed explicitly
+- Default app name is `cloud-helper-mcp` but customizable via `--app-name`
+- Derives tenant from subscription if needed
+- Works in different Azure environments
+
+### 3. Dry-Run Mode
+- `--dry-run` prints all `az` commands that would run, makes no changes
+- Useful for verification before committing to Entra changes
+
+### 4. Application ID URI as `api://{app_id}`
+- Standard Entra pattern for resource servers
+- Clients will request scope: `api://{app_id}/mcp.access`
+- Can be customized later in Entra portal if needed (e.g., custom domain)
+
+### 5. OAuth2 Scope as Delegated Permission
+- `mcp.access` with type="User"
+- Scope value: `mcp.access` (clients request as `api://{app_id}/mcp.access`)
+- Admin and user consent display names provided for clarity
+- UUID generated for scope ID (deterministic via Python or `uuidgen`)
+
+### 6. Token Version v2
+- Set `api.requestedAccessTokenVersion=2`
+- RS-mode servers validate JWT tokens from Entra's v2 token endpoint
+- v2 tokens include `aud` (audience) and other claims needed for validation
+
+### 7. Output Guidance
+- Prints app ID, Application ID URI, scope, and token version
+- Prints exact environment variables to export
+- Explains usage: clients request tokens with scope, server validates via JWT
+
+---
+
+## Architectural Context (From H2 / Monica / Holden Research)
+
+VS Code and AI Foundry:
+- Obtain tokens from Entra ID (`https://login.microsoftonline.com/...`)
+- Send Bearer tokens to MCP server in `Authorization` header
+- Do NOT use the MCP server's `/authorize` or `/token` endpoints
+
+This matches RFC 9728 (Protected Resource Model) and the "ABC Flow" documented in onsemi's `labs/mcp-prm-oauth` reference.
+
+---
+
+## Relationship to Previous Work
+
+### `fix-entra-redirect-uri.sh` (H1 fix)
+- Fixes redirect URI mismatch for test clients
+- Adds `http://127.0.0.1` to app registration
+- **Use case:** Testing with scripts that bind to loopback addresses
+- **No longer needed for production** but kept for test compatibility
+
+### `setup-entra-rs-mode.sh` (RS-mode setup)
+- Sets up the entire RS-mode architecture
+- Creates/configures app as resource server, not authorization server
+- **Use case:** Production setup and client integration
+- **Must run first** before any client integration
+
+**Order of execution:**
+1. Run `setup-entra-rs-mode.sh` — creates/configures app as resource server
+2. Optionally run `fix-entra-redirect-uri.sh` — if testing with loopback clients
+
+---
+
+## Validation
+
+The script follows the same patterns as `fix-entra-redirect-uri.sh`:
+- Prereq checks (`az` CLI, logged in)
+- Colored output (✅/❌/ℹ️ indicators)
+- Idempotent design
+- Dry-run mode
+- Verification step (re-read app after update)
+- Clear summary with implementation guidance
+
+---
+
+## Blockers and Workarounds
+
+None. The script works with current `az` CLI and requires only Application Administrator role (or higher) in Entra tenant.
+
+If user lacks permissions, the `az ad app` commands will fail with clear error messages.
+
+---
+
+## Next Steps
+
+1. **Review:** Holden (Lead) validates RS-mode setup matches RFC 9728
+2. **Test:** Drummer runs script and verifies app registration in Entra portal
+3. **Integrate:** Piotr/Valeria run script to provision for production
+4. **Document:** Server-side implementation must validate Bearer tokens using JWT inspection
+
+---
+
+## Files Modified
+
+- **Created:** `scripts/setup-entra-rs-mode.sh` (executable bash script, 370 lines)
+- **Updated:** `scripts/README.md` — added RS-mode section, explained usage order, clarified when to use each script
+- **Updated:** `.squad/agents/amos/history.md` — added learning entry
+---
+
+# Fix Script Ready — Entra Redirect URI
+
+**From:** Amos (Infra / DevOps)  
+**Date:** 2026-05-08T18:02:01Z  
+**Priority:** HIGH — blocks OAuth flow fix
+
+## What's ready
+
+`scripts/fix-entra-redirect-uri.sh` is written, syntax-validated, and documented in `scripts/README.md`.
+
+The script adds `http://127.0.0.1` as a public-client redirect URI to the Entra app registration for `cloud-helper-mcp`, fixing the H1 root cause confirmed by Holden, Naomi, and Amos.
+
+## Action required from Piotr
+
+Run the script from an `az` session authenticated to the **"Cloud Brokers - ASC Testing"** tenant:
+
+```bash
+# Step 1 — log into the correct tenant
+az login --tenant <TENANT_ID_FOR_CLOUD_BROKERS_ASC_TESTING>
+
+# Step 2 — dry run first (safe, no changes)
+./scripts/fix-entra-redirect-uri.sh \
+  --subscription "Cloud Brokers - ASC Testing" \
+  --dry-run
+
+# Step 3 — apply the fix
+./scripts/fix-entra-redirect-uri.sh \
+  --subscription "Cloud Brokers - ASC Testing"
+```
+
+If you have the app object ID handy (more reliable than name lookup):
+
+```bash
+./scripts/fix-entra-redirect-uri.sh \
+  --tenant-id    "<tenant-guid>" \
+  --app-id       "<app-object-id>"
+```
+
+## Expected outcome
+
+Script exits with:
+```
+✅ http://127.0.0.1 confirmed present in app registration.
+✅ Done. Entra app registration is now RFC 8252 §8.3-compliant for loopback clients.
+```
+
+After that, re-test with `python client/test_oauth_client.py` — the `/token` exchange should complete.
+
+## If access is delegated to Valeria
+
+Forward the `scripts/` directory contents. The script has no hardcoded credentials or tenant IDs — it's safe to share.
+---
+
+# Decision: Provisioning script complete + slot assignment locked
+
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-09T04:11:47Z  
+**Status:** COMPLETE  
+**Requested by:** Piotr Karpala
+
+---
+
+## What was done
+
+Wrote `scripts/provision-two-app-regs.sh` — a single, consolidated, runnable bash script that provisions the full two-app-registration repro/fixed environment end-to-end.
+
+Updated `scripts/README.md` with a full documentation section for the new script.
+
+---
+
+## Slot assignment: LOCKED
+
+This decision resolves the D10 conflict between Holden and Amos.  
+**Piotr has directed Amos's mapping:**
+
+| Slot | App registration | Redirect URIs | Role |
+|------|-----------------|---------------|------|
+| **production** | `cloud-helper-mcp-repro` | `http://localhost` only | Reproduce H1 bug |
+| **staging** | `cloud-helper-mcp-fixed` | `http://localhost` + `http://127.0.0.1` | Demonstrate fix |
+
+This assignment is reflected in:
+- `scripts/provision-two-app-regs.sh` (sticky slot settings in Step 7)
+- The summary printed at script end
+- This decision file
+
+Do **not** change this mapping without a new explicit Piotr directive.
+
+---
+
+## Script highlights
+
+- **Idempotent:** checks before every create (app regs, App Service, slot)
+- **Dry-run:** `--dry-run` flag prints all write commands without executing; read operations still run
+- **Sticky slot settings:** `CLIENT_ID`, `AUDIENCE`, `RESOURCE_HOST`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` are all marked sticky — slot swap never silently changes auth profile
+- **Cutover path:** Step 9 (commented out) contains the exact `az webapp config appsettings set` command to flip production from REPRO to FIXED when Piotr confirms the fix is working
+
+---
+
+## How to run
+
+1. Fill in `TENANT_ID` and `TARGET_SUB` in the CONFIGURATION block at the top of the script
+2. Dry-run: `./scripts/provision-two-app-regs.sh --dry-run`
+3. Execute: `./scripts/provision-two-app-regs.sh`
+
+---
+
+## Status after provisioning
+
+Once run successfully:
+- `cloud-helper-fastmcp.azurewebsites.net` → REPRO auth (broken, H1 preserved)
+- `cloud-helper-fastmcp-staging.azurewebsites.net` → FIXED auth (corrected)
+- Server deployment step remains: TBD after server is packaged for `az webapp deployment`
+---
+
+### 2026-05-09T04:11:47Z: Slot assignment — production = repro
+**By:** Piotr Karpala (user decision)
+**What:** Production slot hosts the `cloud-helper-mcp-repro` app registration (H1 bug preserved). Staging slot hosts `cloud-helper-mcp-fixed` (H1 corrected).
+**Why:** Demo the bug on the public URL first, then prove the fix on staging. Amos's recommendation accepted.
+**Also decided:** AI Foundry not required for Phase 1/2 testing. Local Python PKCE client (`client/test_oauth_client.py`) is sufficient to reproduce and confirm the H1 fix. Foundry (`foundry-kvmorale`) reserved for Phase 3 RS-mode validation only.
+---
+
+### 2026-05-08T22:48:54Z: Build new MCP server with FastMCP (RS-mode)
+**By:** Holden (Lead)
+**Status:** DECIDED — user confirmed
+
+## Decision
+Build `cloud-helper-mcp` from scratch using FastMCP (Python). Original source unavailable.
+
+## Architecture
+- **Mode:** Resource Server (RS-mode) — NOT Authorization Server proxy
+- **Framework:** FastMCP via `mcp[cli]` package
+- **Auth:** Bearer token validation against Entra JWKS (RFC 9728)
+- **Discovery:** Serve `/.well-known/oauth-protected-resource` per RFC 9728
+- **Tool scope:** Hello world only — auth correctness is the acceptance criterion
+
+## Why This Approach
+VS Code and AI Foundry are RS-mode clients: they acquire tokens from Entra directly
+and inject Bearer tokens into MCP requests. Building AS-mode (as the original server
+attempted) causes the "login succeeds, /token never called" symptom confirmed in H2.
+
+## Acceptance Criteria
+1. VS Code can connect and authenticate (Bearer token accepted)
+2. AI Foundry can connect and authenticate (Bearer token accepted)
+3. Unauthenticated requests get 401 with proper OAuth error response
+4. `/.well-known/oauth-protected-resource` returns valid RFC 9728 metadata
+
+## Files Being Built
+- `server/server.py` — FastMCP app + middleware
+- `server/auth.py` — EntraTokenValidator (PyJWT)
+- `server/well_known.py` — RFC 9728 discovery endpoints
+- `server/config.py` — Pydantic Settings
+- `server/requirements.txt`
+- `server/.env.example`
+- `server/README.md`
+- `scripts/setup-entra-rs-mode.sh` — Entra API app registration
+
+## Out of Scope
+- Actual Azure deployment (can be added later)
+- Complex tools beyond hello world
+- Client-side changes (VS Code / AI Foundry handle auth themselves)
+---
+
+### 2026-05-08T18:02:45Z: Final Root Cause + Fix Strategy
+**By:** Holden (Lead)
+**Status:** CONFIRMED — all hypotheses resolved
+
+---
+
+## Root Cause (Confirmed)
+
+### Primary (H2): Architectural Mismatch — Server is AS-mode; Clients Expect RS-mode
+
+`cloud-helper-mcp` is deployed as an MCP Authorization Server proxy: it exposes its own `/authorize` and `/token` endpoints, expecting clients to POST to its `/token` to exchange an auth code for a token.
+
+VS Code and AI Foundry do not use this pattern. They are designed as Resource Server clients:
+
+- **VS Code** uses `IAuthenticationService` + `https://vscode.dev/redirect` to acquire tokens directly from Entra. It then injects the resulting Bearer token into MCP HTTP requests. It never calls the MCP server's `/token` endpoint.
+- **AI Foundry** uses `https://foundry.azure.com/` as redirect URI. Without the "OAuth Identity Passthrough" feature configured in the Foundry portal, Foundry either uses its managed identity or handles token exchange server-side — it never calls the MCP server's `/token` endpoint.
+
+The MCP server's proxy-AS role is structurally invisible to both production clients. This is the dominant cause of the failure.
+
+### Secondary (H1): Redirect URI Mismatch — `127.0.0.1` Not Registered in Entra
+
+For the standalone Python test client (`client/test_oauth_client.py`), there is an additional blocker: the client binds its callback listener to `127.0.0.1` and sends `redirect_uri=http://127.0.0.1:<port>/` in the `/authorize` request. Entra's app registration only contains `http://localhost` — not `http://127.0.0.1`. Per RFC 8252 §8.3 these are not equivalent. Entra either rejects the `/authorize` request outright or binds the auth code to the wrong URI, causing `/token` redemption to fail.
+
+This is a real blocker for test-client use but is not the reason VS Code and Foundry fail — they never use the loopback redirect.
+
+### Why the symptom occurs: "Sign-in successful" + `/token` never called
+
+The "Sign-in successful!" page is the Entra post-login confirmation page shown after the user authenticates. It appears when Entra accepts the login. What happens next depends on the redirect URI:
+
+- For VS Code: Entra redirects to `https://vscode.dev/redirect`. VS Code's own auth service receives the code and exchanges it with Entra directly. The MCP server is never involved.
+- For Foundry: Entra redirects to `https://foundry.azure.com/`. Foundry's backend handles the code. The MCP server is never involved.
+- For the test client: Entra attempts to redirect to `http://127.0.0.1:<port>/` — but this URI is not registered, so either the redirect fails or the auth code is bound to a URI the client cannot redeem.
+
+In all cases, `POST /token` on the MCP server receives zero traffic. The server is not broken — it is simply bypassed.
+
+---
+
+## Fix Strategy
+
+### Phase 1 — Unblock Testing (H1 fix, ~30 min)
+**Goal:** Enable `client/test_oauth_client.py` to complete the full auth flow so the team can isolate and verify server behavior.
+
+**Owner:** Amos (execution), Piotr (tenant access)
+
+**Steps:**
+1. Authenticate to the "Cloud Brokers - ASC Testing" tenant as Valeria Morales or with delegated access.
+2. Run `scripts/fix-entra-redirect-uri.sh --subscription "Cloud Brokers - ASC Testing" --dry-run` to verify.
+3. Run the script without `--dry-run` to add `http://127.0.0.1` as a public-client redirect URI.
+4. Confirm: `✅ http://127.0.0.1 confirmed present in app registration.`
+5. Re-run `python client/test_oauth_client.py` — verify `/token` is now called and returns a token.
+
+**What this does NOT fix:** VS Code and Foundry will still bypass `/token`. Phase 1 only unblocks diagnostic testing.
+
+**Secondary:** Amos should also verify and resolve the Azure Web App IP allowlisting (`az webapp show --query siteConfig.ipSecurityRestrictions`) so Naomi and the team can probe the server from the investigation machine (currently 403-blocked at IP 70.231.17.250).
+
+---
+
+### Phase 2 — Production Fix: RS-mode Architectural Change (~1-2 days)
+**Goal:** Make `cloud-helper-mcp` operate as an MCP Resource Server, which is what VS Code and AI Foundry actually expect. This is the permanent fix.
+
+**Owner:** Naomi (server code), Amos (Entra config alignment)
+
+#### 2a. Add `/.well-known/oauth-protected-resource` endpoint (RFC 9728)
+Add a PRM (Protected Resource Metadata) endpoint that declares:
+```json
+{
+  "resource": "https://cloud-helper-mcp.azurewebsites.net",
+  "authorization_servers": ["https://login.microsoftonline.com/<tenant-id>/v2.0"]
+}
+```
+When VS Code or Foundry sends a request without a Bearer token and receives a 401, the MCP spec requires the server to respond with `WWW-Authenticate: Bearer resource_metadata="/.well-known/oauth-protected-resource"`. The client then fetches the PRM, discovers Entra as the AS, acquires a token from Entra directly, and retries.
+
+Reference: onsemi `labs/mcp-prm-oauth` sample at `/home/pkarpala/projects/onsemi/ai-gateway-explore/labs/mcp-prm-oauth/`.
+
+#### 2b. Remove or retire the `/authorize` and `/token` proxy endpoints
+These endpoints represent the AS-mode proxy role. In RS-mode, the MCP server does not participate in token issuance. They can be removed or left returning `501 Not Implemented` to avoid confusion. Remove references from `/.well-known/oauth-authorization-server` as well.
+
+#### 2c. Add Bearer token validation middleware
+Add middleware that:
+- Extracts `Authorization: Bearer <token>` from incoming requests
+- Validates the JWT signature against Entra's JWKS endpoint (`https://login.microsoftonline.com/<tenant-id>/v2.0/keys`)
+- Validates `aud` (must match the app's client ID or API URI), `iss`, and `exp` claims
+- Returns 401 with `WWW-Authenticate` on failure
+
+Reference implementation: onsemi `src/mcp-server/auth.py` (OBO + Bearer validation pattern).
+
+#### 2d. Update `/.well-known/oauth-authorization-server` to redirect to Entra
+If this metadata document is kept for legacy compatibility, update it to point directly to Entra's well-known endpoint rather than the server's own proxy endpoints. Alternatively, remove it and serve only `/.well-known/oauth-protected-resource`.
+
+#### 2e. Enable AI Foundry OAuth Passthrough (if Foundry is a target client)
+In the Foundry portal: Build → Tools → Custom → MCP → OAuth Identity Passthrough. Register `cloud-helper-mcp` as a connection with OAuth passthrough enabled. This is a portal configuration step, not a code change. Foundry will then relay user tokens to the MCP server automatically — but the server must be in RS-mode (with Bearer validation) to accept them.
+
+---
+
+## Agent Assignments
+
+| Agent | Task | Phase | Priority |
+|-------|------|-------|----------|
+| **Amos** | Run `scripts/fix-entra-redirect-uri.sh` to add `http://127.0.0.1` to Entra app registration | Phase 1 | 🔴 Immediate |
+| **Amos** | Resolve Azure Web App IP allowlisting — add investigation machine IP to allowlist | Phase 1 | 🔴 Immediate |
+| **Alex** | Re-run `client/test_oauth_client.py` after H1 fix — verify `/token` now called | Phase 1 | 🔴 Immediate (after Amos) |
+| **Drummer** | Reproduce TC-02 failure before Phase 1 fix (documents the broken state); sign off TC-09/TC-10 after Phase 2 | Phase 1 + 2 | 🟠 High |
+| **Naomi** | Locate `cloud-helper-mcp` server source code (not in repo — must be retrieved from Azure or owner) | Phase 2 pre-req | 🔴 Blocking Phase 2 |
+| **Naomi** | Implement `/.well-known/oauth-protected-resource` endpoint per RFC 9728 | Phase 2 | 🟠 High |
+| **Naomi** | Remove `/authorize` and `/token` proxy endpoints (or stub as 501) | Phase 2 | 🟠 High |
+| **Naomi** | Add Bearer token validation middleware (validate against Entra JWKS) | Phase 2 | 🟠 High |
+| **Naomi** | Update or remove `/.well-known/oauth-authorization-server` to point to Entra | Phase 2 | 🟡 Medium |
+| **Amos** | Update Entra app registration platform type to `spa` if MSAL.js/PKCE is used (resolves AADSTS9002326 risk) | Phase 2 | 🟡 Medium |
+| **Amos** | Enable AI Foundry OAuth Passthrough in portal for `cloud-helper-mcp` connection | Phase 2 | 🟡 Medium |
+| **Alex** | Update `client/test_oauth_client.py` to use Bearer token flow (not loopback callback_handler) once server is in RS-mode | Phase 2 | 🟡 Medium |
+| **Drummer** | Update TC-02, TC-09, TC-10 test cases to reflect RS-mode expected behavior; produce sign-off report | Phase 2 | 🟡 Medium |
+
+---
+
+## Open Questions for Piotr
+
+1. **Where is `cloud-helper-mcp` source code?**
+   Naomi could not find it in this repository. The MCP server is deployed to `cloud-helper-mcp.azurewebsites.net` but its source is not checked in here. Phase 2 cannot start until Naomi has the code. Is it in a separate repo, owned by Valeria, or deployed directly from a pipeline?
+
+2. **Is the onsemi `labs/mcp-prm-oauth` sample directly reusable or does it need adaptation?**
+   It is the closest reference implementation (APIM + RFC 9728 PRM + Entra AS). However, it uses Azure API Management as the Bearer token validation layer. If `cloud-helper-mcp` does not sit behind APIM, Naomi will need to implement JWT validation middleware in-process instead. Decision needed: add APIM, or implement validation in-server?
+
+3. **Does AI Foundry OAuth Passthrough need to be enabled/configured separately by the customer?**
+   The Foundry passthrough feature (2026) is configured in the Foundry portal per-connection. This requires portal access to `foundry-kvmorale`. Confirm: does Piotr or Valeria have access to configure MCP connections in that Foundry instance? And is the Foundry SDK version >= the version that supports passthrough?
+
+4. **What is the intended production client?**
+   VS Code, AI Foundry, both, or a custom client? This determines which RS-mode behavior to prioritize in Phase 2. If both are targets, the PRM endpoint is required for VS Code and the Foundry passthrough portal config is additionally required for Foundry.
+
+5. **Entra tenant access for Phase 1 execution:**
+   The H1 fix script requires CLI access to "Cloud Brokers - ASC Testing" tenant. Amos's machine does not have it. Confirm: will Piotr run the script, or is it being delegated to Valeria Morales? Unblocking this is the single fastest win.
+---
+
+# Naomi — FastMCP RS-mode server built
+
+- **Date:** 2026-05-08T22:48:54Z
+- **Owner:** Naomi
+- **Status:** Complete
+
+## Files created and purpose
+- `server/server.py` — FastMCP hello-world server, Starlette composition, Bearer token middleware, startup warm-up, and uvicorn entrypoint.
+- `server/auth.py` — Entra JWT validator, JWKS cache, auth context helpers, and scope extraction.
+- `server/well_known.py` — root `/.well-known/` endpoints and cached Entra authorization-server metadata fetch.
+- `server/config.py` — environment-driven settings for tenant/app/resource configuration.
+- `server/requirements.txt` — Python dependencies for FastMCP, ASGI hosting, JWT validation, and settings.
+- `server/.env.example` — sample local configuration.
+- `server/README.md` — install, configuration, run, flow, and smoke-test instructions.
+
+## Key implementation decisions
+- Used **PyJWT + cryptography** for JWT verification so the server only validates access tokens and never acts as an OAuth client.
+- Implemented a **1-hour in-memory JWKS cache** with a forced refresh when an unknown `kid` appears, which keeps Entra calls low without making key rollover sticky.
+- Put **Bearer validation in Starlette middleware ahead of the mounted FastMCP app** so unauthenticated requests fail before MCP request handling begins, while `/.well-known/` stays public.
+
+## Known limitations / TODOs
+- The hello tool relies on a request-scoped context variable for claims; if the MCP SDK exposes a first-class per-request auth context later, switch to that.
+- There is no automated integration test with real Entra tokens in this repo yet; only local import/smoke validation is practical here.
+- Scope enforcement currently checks `scp` and `roles`; adjust if the deployed Entra app uses a different claim shape.
+---
+
+### 2026-05-09T04:22:42Z: User directives — toolchain preferences
+**By:** Piotr (via Copilot)
+**What:**
+1. Use **UV and UVX** for all Python packaging, virtual envs, and script running (replace pip/venv)
+2. Use **AZD (Azure Developer CLI)** for deployment (replace `az webapp deployment` approach)
+3. Do **app registrations in Bicep** rather than bash/az CLI (`scripts/provision-two-app-regs.sh` to be replaced or supplemented with Bicep + `azd provision`)
+**Why:** User preference — captured for team memory and Amos/Naomi action
+---
