@@ -8,6 +8,13 @@
 
 ## Learnings
 
+### 2026-05-09T05:00:00Z — ARM JSON artifacts must be gitignored; main.parameters.json is the exception
+
+- ARM JSON files (`infra/*.json`) compiled from Bicep via `bicep build` are derived artifacts and must never be committed. Added `infra/*.json` / `infra/**/*.json` to `.gitignore`.
+- `infra/main.parameters.json` is the AZD parameter file and IS tracked in source control — add `!infra/main.parameters.json` negation rule so it is never silently dropped.
+- `infra/main.json` (if it appears from local `bicep build` runs) should be deleted immediately; it is not needed by AZD which builds from Bicep source directly.
+- Always use `az bicep build --file infra/main.bicep` (not the bare `bicep` binary) on this machine since `bicep` is not on PATH but `az bicep` is installed.
+
 ### 2026-05-09T04:40:27Z — Bicep 0.42.1 Graph extension + App Service config fixes
 
 - **Microsoft Graph extension fix:** Bicep 0.42.1 does not recognize the `builtin:` extension scheme. The working configuration is the OCI reference in `infra/bicepconfig.json`: `br:mcr.microsoft.com/bicep/extensions/microsoftgraph/v1.0:0.1.8-preview`.
