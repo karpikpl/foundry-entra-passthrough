@@ -8,9 +8,6 @@
     "location": {
       "value": "${AZURE_LOCATION}"
     },
-    "tenantId": {
-      "value": "${AZURE_TENANT_ID}"
-    },
     "existingPlanName": {
       "value": "${EXISTING_PLAN_NAME}"
     }

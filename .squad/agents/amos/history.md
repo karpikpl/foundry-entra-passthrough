@@ -192,3 +192,10 @@ az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" 
 - Recommended a new `cloud-helper-fastmcp` App Service with a `staging` slot to isolate the RS-mode rollout from the legacy app.
 - Declared `CLIENT_ID`, `AUDIENCE`, `RESOURCE_HOST`, `AZURE_CLIENT_ID`, and `AZURE_TENANT_ID` as sticky slot settings.
 - Proposed mapping: production slot = repro, staging slot = fixed; slot swap is not the main auth-profile switch.
+
+### 2026-05-09T04:51:40Z — AZD tenantId prompt removed from Bicep entrypoint
+
+- Root cause confirmed: `infra/main.bicep` declared `tenantId` as a required param, so `azd provision` prompted whenever `AZURE_TENANT_ID` was unset.
+- Fixed by deriving tenant context inside Bicep with `var tenantId = subscription().tenantId`, preserving the module input to `infra/modules/appService.bicep` without changing that module.
+- Removed the `tenantId` binding from `infra/main.parameters.json`, so AZD no longer depends on `AZURE_TENANT_ID` for this deployment path.
+- Verification: `bicep build infra/main.bicep` passed with exit code 0 on local Bicep CLI 0.42.1.
