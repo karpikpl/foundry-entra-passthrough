@@ -21,9 +21,6 @@ targetScope = 'resourceGroup'
 @description('Azure region for all resources.')
 param location string
 
-@description('Environment name — used for tagging.')
-param environmentName string
-
 @description('Entra tenant ID.')
 param tenantId string
 
@@ -98,20 +95,6 @@ resource webApp 'Microsoft.Web/sites@2022-09-01' = {
   }
 }
 
-// ── Non-sticky app settings (shared, swappable) ───────────────────────────────
-// These travel with the code on slot swap (correct behaviour for shared config).
-resource webAppSettings 'Microsoft.Web/sites/config@2022-09-01' = {
-  name: 'appsettings'
-  parent: webApp
-  properties: {
-    AZURE_TENANT_ID: tenantId
-    PORT: '8000'
-    SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
-    WEBSITES_PORT: '8000'
-    PYTHON_ENABLE_GUNICORN_MULTIWORKERS: 'true'
-  }
-}
-
 // ── Sticky slot settings — production slot = REPRO profile ───────────────────
 // These do NOT travel with a slot swap; each slot keeps its own auth identity.
 resource webAppSlotSettings 'Microsoft.Web/sites/config@2022-09-01' = {
@@ -143,7 +126,6 @@ resource webAppStickyProd 'Microsoft.Web/sites/config@2022-09-01' = {
     WEBSITES_PORT: '8000'
     PYTHON_ENABLE_GUNICORN_MULTIWORKERS: 'true'
   }
-  dependsOn: [webAppSlotSettings]
 }
 
 // ── Staging slot (fixed — H1 corrected) ──────────────────────────────────────

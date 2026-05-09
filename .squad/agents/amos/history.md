@@ -8,6 +8,13 @@
 
 ## Learnings
 
+### 2026-05-09T04:40:27Z — Bicep 0.42.1 Graph extension + App Service config fixes
+
+- **Microsoft Graph extension fix:** Bicep 0.42.1 does not recognize the `builtin:` extension scheme. The working configuration is the OCI reference in `infra/bicepconfig.json`: `br:mcr.microsoft.com/bicep/extensions/microsoftgraph/v1.0:0.1.8-preview`.
+- **Verification outcome:** `bicep build infra/main.bicep` succeeds with that OCI reference, so no AZD preprovision hook fallback was needed.
+- **App Service config collision:** `Microsoft.Web/sites/config` resources under the same parent cannot both use `name: 'appsettings'`. The dedicated `webAppSettings` resource was redundant because `webAppStickyProd` already carried the shared settings.
+- **Cleanup:** Removed the unused `environmentName` parameter from `infra/modules/appService.bicep` and the redundant module-level `dependsOn` from `infra/main.bicep`.
+
 ### 2026-05-08T17:46:22Z — Cross-Agent Finding: Root cause analysis (from Holden) + User directive
 
 **H1 (HIGH): Redirect URI mismatch** — Entra app registration may list `http://localhost` (any port), but Entra's actual redirect lands on `http://127.0.0.1:<port>/`. Per RFC 8252, loopback redirects MUST use `http://127.0.0.1` or `http://[::1]` — NOT `http://localhost`. If app registration platform type is "Web" vs "Mobile/Desktop", port matching behavior differs. Need to verify exact registered URIs and platform type.

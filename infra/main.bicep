@@ -46,7 +46,6 @@ module appSvc './modules/appService.bicep' = {
   name: 'appService-${environmentName}'
   params: {
     location: location
-    environmentName: environmentName
     tenantId: tenantId
     existingPlanName: existingPlanName
     reproClientId: appRegs.outputs.reproClientId
@@ -55,7 +54,6 @@ module appSvc './modules/appService.bicep' = {
     fixedAudience: appRegs.outputs.fixedAudience
     tags: tags
   }
-  dependsOn: [appRegs]
 }
 
 // ── Outputs (available via `azd env get-values`) ─────────────────────────────
