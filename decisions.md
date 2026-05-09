@@ -52,12 +52,39 @@ Migrated all Azure provisioning from bash script to AZD (Azure Developer CLI) + 
 
 ---
 
+### D3: AZD Resolves Tenant/Subscription Automatically (Amos)
+
+**Date:** 2026-05-09T04:33:30Z  
+**Status:** CORRECTED
+
+`azd` does **not** require manually setting `AZURE_SUBSCRIPTION_ID` or `AZURE_TENANT_ID` via `azd env set`. Both are resolved automatically from the authenticated session established by `azd auth login`.
+
+**Key Corrections:**
+- Removed manual `azd env set AZURE_TENANT_ID` and `azd env set AZURE_SUBSCRIPTION_ID` from infra runbook
+- Only `AZURE_LOCATION` (and optional `EXISTING_PLAN_NAME`) remain as user-supplied values
+- Updated `infra/main.bicep` tenant parameter description to reflect automatic resolution
+- `infra/main.parameters.json` already correctly uses `${AZURE_TENANT_ID}` AZD binding
+
+**Correct Setup Flow:**
+```bash
+azd auth login                         # resolves tenant + subscription
+azd env new cloud-helper-fastmcp       # creates environment
+azd env set AZURE_LOCATION eastus      # only user-supplied value required
+azd provision                          # tenantId flows from AZURE_TENANT_ID automatically
+```
+
+**Files Modified:**
+- `infra/README.md` — removed manual env set instructions
+- `infra/main.bicep` — updated tenantId parameter description
+
+---
+
 ## Summary
 
-| Category | UV Migration | AZD+Bicep |
-|----------|--------------|-----------|
-| Status | COMPLETE | IMPLEMENTED |
-| Agent | Naomi | Amos |
-| Python/Deps | pyproject.toml + uv.lock | N/A |
-| Infra | N/A | Bicep (declarative) |
-| Deployment | startup.sh | AZD + App Service |
+| Category | UV Migration | AZD+Bicep | AZD Auth |
+|----------|--------------|-----------|----------|
+| Status | COMPLETE | IMPLEMENTED | CORRECTED |
+| Agent | Naomi | Amos | Amos |
+| Python/Deps | pyproject.toml + uv.lock | N/A | N/A |
+| Infra | N/A | Bicep (declarative) | Auth auto-resolution |
+| Deployment | startup.sh | AZD + App Service | N/A |
