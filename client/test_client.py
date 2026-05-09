@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 import socket
 import threading
@@ -10,24 +11,29 @@ import urllib.parse
 import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 import click
 import httpx
+from dotenv import load_dotenv
 
-TENANT_ID = "c29d6c2b-f765-41b3-b2a2-971a14239dfd"
+ENV_FILE = Path(__file__).with_name(".env")
+load_dotenv(ENV_FILE)
+
+TENANT_ID = os.environ.get("TENANT_ID", "c29d6c2b-f765-41b3-b2a2-971a14239dfd")
 
 ENVIRONMENTS = {
     "repro": {
-        "server_url": "https://cloud-helper-fastmcp.azurewebsites.net",
-        "client_id": "52e5e7ea-ba6a-4d66-91a3-785d2edc4d43",
-        "audience": "api://cloud-helper-mcp-repro-mcp-auth-test",
+        "server_url": os.environ.get("REPRO_SERVER_URL", "https://cloud-helper-fastmcp.azurewebsites.net"),
+        "client_id": os.environ.get("REPRO_CLIENT_ID", "52e5e7ea-ba6a-4d66-91a3-785d2edc4d43"),
+        "audience": os.environ.get("REPRO_AUDIENCE", "api://cloud-helper-mcp-repro-mcp-auth-test"),
         "expect_success": False,
     },
     "fixed": {
-        "server_url": "https://cloud-helper-fastmcp-staging.azurewebsites.net",
-        "client_id": "7810abd8-ed7b-40f4-a447-04cc1658eab6",
-        "audience": "api://cloud-helper-mcp-fixed-mcp-auth-test",
+        "server_url": os.environ.get("FIXED_SERVER_URL", "https://cloud-helper-fastmcp-staging.azurewebsites.net"),
+        "client_id": os.environ.get("FIXED_CLIENT_ID", "7810abd8-ed7b-40f4-a447-04cc1658eab6"),
+        "audience": os.environ.get("FIXED_AUDIENCE", "api://cloud-helper-mcp-fixed-mcp-auth-test"),
         "expect_success": True,
     },
 }

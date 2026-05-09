@@ -20,3 +20,10 @@ services:
 infra:
   provider: bicep
   path: ./infra
+
+hooks:
+  postprovision:
+    shell: sh
+    run: ./hooks/postprovision.sh
+    interactive: false
+    continueOnError: false

@@ -11,3 +11,6 @@
 infra/*.json
 infra/**/*.json
 !infra/main.parameters.json
+
+# Local client environment generated from AZD outputs
+client/.env
