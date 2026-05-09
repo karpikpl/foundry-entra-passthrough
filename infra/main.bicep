@@ -20,7 +20,7 @@ param environmentName string
 @description('Azure region for App Service resources. Defaults to resource group location.')
 param location string = resourceGroup().location
 
-@description('Entra tenant ID. Set via: azd env set AZURE_TENANT_ID <guid>')
+@description('Entra tenant ID. Resolved automatically from the AZD auth session via AZURE_TENANT_ID.')
 param tenantId string
 
 @description('Name of an existing App Service Plan to reuse. Leave empty to create a new B1 plan.')

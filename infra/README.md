@@ -53,9 +53,7 @@ azd auth login
 # 2. Create a new AZD environment
 azd env new cloud-helper-fastmcp
 
-# 3. Set required environment values
-azd env set AZURE_TENANT_ID      <your-entra-tenant-guid>
-azd env set AZURE_SUBSCRIPTION_ID <your-subscription-id>
+# 3. Set the target Azure region (tenant and subscription are resolved from your auth session)
 azd env set AZURE_LOCATION       eastus
 
 # 4. (OPTIONAL) Reuse the existing App Service Plan from cloud-helper-mcp
