@@ -24,7 +24,7 @@ param location string
 @description('Entra tenant ID.')
 param tenantId string
 
-@description('Name of an existing App Service Plan to reuse. Empty = create new B1 plan.')
+@description('Name of an existing App Service Plan to reuse. Empty = create new S1 plan.')
 param existingPlanName string = ''
 
 @description('Client ID of the repro app registration.')
@@ -47,7 +47,7 @@ var webAppName = 'cloud-helper-fastmcp'
 var stagingSlotName = 'staging'
 
 // ── App Service Plan ──────────────────────────────────────────────────────────
-// Reuse an existing plan if existingPlanName is provided; otherwise create B1.
+// Reuse an existing plan if existingPlanName is provided; otherwise create S1.
 resource existingPlan 'Microsoft.Web/serverfarms@2022-09-01' existing = if (!empty(existingPlanName)) {
   name: existingPlanName
 }
@@ -58,9 +58,9 @@ resource newPlan 'Microsoft.Web/serverfarms@2022-09-01' = if (empty(existingPlan
   tags: tags
   kind: 'linux'
   sku: {
-    name: 'B1'
-    tier: 'Basic'
-    size: 'B1'
+    name: 'S1'
+    tier: 'Standard'
+    size: 'S1'
     capacity: 1
   }
   properties: {
