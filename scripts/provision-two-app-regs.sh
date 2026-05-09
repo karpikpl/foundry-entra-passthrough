@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # provision-two-app-regs.sh
 #
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  SUPERSEDED — 2026-05-09T04:22:42Z                                     ║
+# ║  This script is retained as a fallback reference only.                 ║
+# ║  The canonical provisioning path is now AZD + Bicep:                   ║
+# ║                                                                         ║
+# ║    azd provision   →  infra/main.bicep (Bicep templates)               ║
+# ║    azd deploy      →  deploys server/ FastMCP code                     ║
+# ║                                                                         ║
+# ║  See infra/README.md for full AZD setup instructions.                  ║
+# ║  Run this script only if AZD + Bicep is unavailable or you need a      ║
+# ║  quick CLI-only path for a specific env without AZD.                   ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+#
 # Provisions two Entra app registrations (repro + fixed) and a new FastMCP
 # App Service with production and staging slots for side-by-side demonstration
 # of the H1 OAuth redirect-URI bug.

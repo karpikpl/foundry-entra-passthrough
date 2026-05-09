@@ -1,0 +1,22 @@
+# azure.yaml — AZD project definition for cloud-helper-fastmcp
+# Created: 2026-05-09T04:22:42Z
+# Migrated from scripts/provision-two-app-regs.sh to AZD + Bicep.
+# Run `azd provision` to deploy infra; `azd deploy` to deploy server code.
+# See infra/README.md for full setup instructions.
+
+name: cloud-helper-fastmcp
+metadata:
+  template: azd-init@1.9.0
+
+services:
+  server:
+    # FastMCP Python server — Naomi owns the UV/UVX packaging in server/
+    project: ./server
+    language: python
+    host: appservice
+    # AZD discovers the App Service by the azd-service-name tag set in Bicep
+    resourceName: cloud-helper-fastmcp
+
+infra:
+  provider: bicep
+  path: ./infra

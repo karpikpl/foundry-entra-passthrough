@@ -1,0 +1,15 @@
+# DEPRECATED: This file is kept as a fallback only.
+# The project now uses UV for dependency management — see pyproject.toml and uv.lock.
+# To install deps: cd server && uv sync
+# To run: uv run python server.py
+#
+# Plain-pip fallback (no venv management):
+#   pip install -r requirements.txt
+mcp[cli]>=1.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+PyJWT>=2.8.0
+cryptography>=41.0.0
+httpx>=0.25.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
