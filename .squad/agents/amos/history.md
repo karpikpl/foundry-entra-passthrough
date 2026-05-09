@@ -45,6 +45,26 @@ az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" 
 
 **CLI blocker:** "Cloud Brokers - ASC Testing" subscription is in a different tenant, not accessible from current `az` session. All remediation commands must be run by the subscription owner (Valeria Morales / Intel team). Full command set documented in `.squad/decisions/inbox/amos-entra-config-audit.md`.
 
+### 2026-05-08T18:02:01Z — Remediation script written
+
+**Script:** `scripts/fix-entra-redirect-uri.sh`  
+**Docs:** `scripts/README.md`
+
+**What the script does:**
+- Adds `http://127.0.0.1` to the public-client (Mobile/Desktop) redirect URIs of the Entra app registration, preserving existing URIs
+- Looks up the app by display name (defaults to `cloud-helper-mcp`) or by object ID via `--app-id`
+- Accepts `--tenant-id` and `--subscription` params — no hardcoded values
+
+**Key design decisions:**
+- **Idempotent:** reads current URIs first; exits cleanly if target URI already present
+- **Prereq checks:** validates `az` CLI installed + user logged in before any reads
+- **Dry-run mode** (`--dry-run`): prints the `az ad app update` command it would run, makes no changes
+- **Verification step:** re-reads the app registration after update and confirms the URI is present (with a 2s replication delay buffer)
+- **No hardcoded tenant/subscription:** all identity context passed as params or derived from current `az` session
+- **Transparent output:** ✅/❌/⚠️ indicators throughout; prints before/after URI lists
+
+**CLI blocker (unchanged):** The "Cloud Brokers - ASC Testing" subscription is in a different tenant from the current dev machine's `az` session. Piotr or Valeria must run the script from a session logged into that tenant.
+
 ### 2026-05-08T17:50:48Z — CROSS-AGENT CONFIRMATION: H1 Validated by 3 Independent Sources
 
 **H1 (HIGH) is now CONFIRMED:**
@@ -58,3 +78,20 @@ az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" 
 
 **Fix command ready:** `az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" "http://127.0.0.1"`  
 **Execution status:** Awaiting execution in "Cloud Brokers - ASC Testing" tenant
+
+### 2026-05-08T18:02:45Z — CROSS-PROPAGATION: H2 CONFIRMED + RS-MODE ARCHITECTURAL FIX REQUIRED
+
+**Monica's research confirms H2 with architectural clarity:**
+
+- **H2 CONFIRMED (HIGH):** VS Code and AI Foundry do NOT invoke the MCP server's /token endpoint. They use their own OAuth frameworks that obtain Bearer tokens directly from Entra ID (`https://vscode.dev/redirect` for VS Code, `https://foundry.azure.com/` for Foundry) and bypass the MCP server's Authorization Server role entirely.
+- **Architectural root cause:** The intel `cloud-helper-mcp` acts as an MCP Authorization Server, but production clients expect Resource Server behavior (RFC 9728 PRM).
+- **Reference:** onsemi `labs/mcp-prm-oauth` demonstrates the correct pattern: MCP server publishes `/.well-known/oauth-protected-resource` pointing to Entra, validates Bearer tokens using JWT validation.
+- **Key evidence:** MCP spec, VS Code source (`IAuthenticationService`, `https://vscode.dev/redirect`), Foundry OAuth passthrough docs, MCP Python SDK analysis.
+
+**Recommended RS-mode switch:**
+1. Remove `/authorize` and `/token` proxy endpoints
+2. Add `/.well-known/oauth-protected-resource` (RFC 9728 PRM) → Entra
+3. Validate Bearer tokens via JWT validation middleware
+4. Clients automatically use this metadata to route tokens through Entra
+
+**Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.

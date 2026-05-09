@@ -43,3 +43,20 @@
 - Prevents live endpoint probing but not the cause of OAuth hang
 - Should be addressed during remediation
 
+
+### 2026-05-08T18:02:45Z — CROSS-PROPAGATION: H2 CONFIRMED + RS-MODE ARCHITECTURAL FIX REQUIRED
+
+**Monica's research confirms H2 with architectural clarity:**
+
+- **H2 CONFIRMED (HIGH):** VS Code and AI Foundry do NOT invoke the MCP server's /token endpoint. They use their own OAuth frameworks that obtain Bearer tokens directly from Entra ID (`https://vscode.dev/redirect` for VS Code, `https://foundry.azure.com/` for Foundry) and bypass the MCP server's Authorization Server role entirely.
+- **Architectural root cause:** The intel `cloud-helper-mcp` acts as an MCP Authorization Server, but production clients expect Resource Server behavior (RFC 9728 PRM).
+- **Reference:** onsemi `labs/mcp-prm-oauth` demonstrates the correct pattern: MCP server publishes `/.well-known/oauth-protected-resource` pointing to Entra, validates Bearer tokens using JWT validation.
+- **Key evidence:** MCP spec, VS Code source (`IAuthenticationService`, `https://vscode.dev/redirect`), Foundry OAuth passthrough docs, MCP Python SDK analysis.
+
+**Recommended RS-mode switch:**
+1. Remove `/authorize` and `/token` proxy endpoints
+2. Add `/.well-known/oauth-protected-resource` (RFC 9728 PRM) → Entra
+3. Validate Bearer tokens via JWT validation middleware
+4. Clients automatically use this metadata to route tokens through Entra
+
+**Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
