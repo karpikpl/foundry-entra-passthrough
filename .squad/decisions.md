@@ -244,6 +244,39 @@ Always run `bicep build infra/main.bicep` (exit 0, no errors) before marking any
 
 **Impact:** `azd provision` is no longer blocked by these compile-time Bicep errors.
 
+### D13: Derive tenantId from subscription() in AZD Bicep entrypoint
+**By:** Amos (Infrastructure / DevOps)  
+**Date:** 2026-05-09T04:51:40Z  
+**Status:** IMPLEMENTED  
+**Commit:** 523f3d0
+
+**Problem:** `azd provision` was prompting for `tenantId` because `infra/main.bicep` declared it as a required parameter with no default.
+
+**Decision:** Resolve tenant inside Bicep:
+- Remove `param tenantId string` from `infra/main.bicep`
+- Add `var tenantId = subscription().tenantId` near top
+- Remove `tenantId` from `infra/main.parameters.json`
+- Keep module contract for `infra/modules/appService.bicep` unchanged
+
+**Rationale:** `subscription().tenantId` is available at deployment time and matches active Azure context. Eliminates unnecessary operator input and prevents AZD prompts.
+
+**Verification:** `bicep build infra/main.bicep` → exit 0, no errors.
+
+---
+
+### D14: Never commit ARM JSON build artifacts
+**By:** Piotr Karpala (via Copilot)  
+**Date:** 2026-05-09T04:40:27Z  
+**Status:** IMPLEMENTED  
+**Commit:** b485692
+
+**Rule:** `infra/*.json` files (compiled ARM templates) must be gitignored.  
+**Exception:** `infra/main.parameters.json` is the AZD parameter file and must be tracked.
+
+**Rationale:** ARM JSON is derived from Bicep and should never be in source control. Reduces noise and prevents merge conflicts on auto-generated files.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
