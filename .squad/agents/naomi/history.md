@@ -78,3 +78,60 @@
 4. Clients automatically use this metadata to route tokens through Entra
 
 **Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
+
+### 2026-05-09T01:17:47Z — Post-Provision Verification
+
+Ran full verification suite via `az` CLI after `azd provision` success. All 5 check categories passed.
+
+**CHECK 1: Web app and slots exist**
+- ✅ Web app `cloud-helper-fastmcp` exists in resource group `rg-mcp-auth-test`
+- ✅ App state: `Running`
+- ⚠️ **Only 1 slot found (staging)** — production slot deployment likely uses root `cloud-helper-fastmcp` as production, no named production slot
+
+**CHECK 2: App settings per slot (CLIENT_ID, AUDIENCE, AZURE_TENANT_ID)**
+- ✅ **Staging slot settings:**
+  - CLIENT_ID: `7810abd8-ed7b-40f4-a447-04cc1658eab6` (fixed app)
+  - AUDIENCE: `api://cloud-helper-mcp-fixed-mcp-auth-test/mcp.access`
+  - AZURE_TENANT_ID: `c29d6c2b-f765-41b3-b2a2-971a14239dfd`
+- ✅ **Production slot settings:**
+  - CLIENT_ID: `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43` (repro app)
+  - AUDIENCE: `api://cloud-helper-mcp-repro-mcp-auth-test/mcp.access`
+  - AZURE_TENANT_ID: `c29d6c2b-f765-41b3-b2a2-971a14239dfd` (same tenant)
+
+**CHECK 3: Entra app registrations exist**
+- ✅ Both app regs found (queried directly by CLIENT_ID from slots):
+  - `cloud-helper-mcp-repro-mcp-auth-test` → `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43`
+  - `cloud-helper-mcp-fixed-mcp-auth-test` → `7810abd8-ed7b-40f4-a447-04cc1658eab6`
+
+**CHECK 4: Redirect URIs match expected config**
+- ✅ **Repro app (prod):**
+  - Redirect URIs: `["http://localhost"]`
+  - Expected: `["http://localhost"]` (bug preserved ✓)
+- ✅ **Fixed app (staging):**
+  - Redirect URIs: `["http://127.0.0.1", "http://localhost"]`
+  - Expected: `["http://localhost", "http://127.0.0.1"]` (order differs but both present ✓)
+
+**CHECK 5: HTTP health checks**
+- ✅ Prod slot: HTTP 200 from `https://cloud-helper-fastmcp.azurewebsites.net/`
+- ✅ Staging slot: HTTP 200 from `https://cloud-helper-fastmcp-staging.azurewebsites.net/`
+
+## Summary
+
+All infrastructure provisioning checks PASSED. The deployment is healthy:
+- Both slots running and responsive
+- Correct app registrations linked to correct slots
+- Redirect URI bug preserved on prod as intended for comparison testing
+- Redirect URI fix deployed on staging
+
+No remediation needed at infrastructure level. Ready for functional testing of OAuth flows.
+
+### 2026-05-09T01:23:48.240-04:00 — Rebuilt local PKCE repro/fix client
+
+- Replaced the legacy `client/test_oauth_client.py` flow with a standalone Click + httpx script at `client/test_client.py`.
+- Added `repro` and `fixed` subcommands with slot-specific defaults:
+  - repro → prod slot `https://cloud-helper-fastmcp.azurewebsites.net`, client ID `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43`
+  - fixed → staging slot `https://cloud-helper-fastmcp-staging.azurewebsites.net`, client ID `7810abd8-ed7b-40f4-a447-04cc1658eab6`
+- The client now fetches both server well-known documents, binds the callback listener to `127.0.0.1`, performs PKCE S256, redeems the auth code at Entra, and calls MCP `tools/list` with the bearer token.
+- Updated `client/pyproject.toml` to use `httpx` + `click`, refreshed `client/uv.lock`, and rewrote `client/README.md` for `uv run test_client.py repro|fixed`.
+- Updated repo-facing helper docs/scripts (`Makefile`, `scripts/README.md`, `scripts/fix-entra-redirect-uri.sh`, `scripts/provision-two-app-regs.sh`) so operator instructions point at the new client entrypoint.
+- Validation completed locally with `cd client && uv lock && uv sync && uv run python -m py_compile test_client.py && uv run test_client.py --help`.

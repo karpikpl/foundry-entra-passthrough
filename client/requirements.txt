@@ -1,6 +1,7 @@
 # DEPRECATED: This file is kept as a fallback only.
 # The project now uses UV — see pyproject.toml and uv.lock.
 # To install deps: cd client && uv sync
-# To run: uv run python test_oauth_client.py --server-url https://...
+# To run: uv run test_client.py repro
 #
-requests>=2.31.0
+httpx>=0.27
+click>=8.1

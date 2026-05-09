@@ -81,8 +81,8 @@ TARGET_SUB="Cloud Brokers - ASC Testing"            # subscription name or ID
 ### After provisioning
 
 1. **Deploy the server** to both slots (TBD once server is packaged)
-2. **Run repro test** against production: `python client/test_oauth_client.py --server https://cloud-helper-fastmcp.azurewebsites.net`
-3. **Run fix test** against staging: `python client/test_oauth_client.py --server https://cloud-helper-fastmcp-staging.azurewebsites.net`
+2. **Run repro test** against production: `uv run client/test_client.py repro`
+3. **Run fix test** against staging: `uv run client/test_client.py fixed`
 4. **Cut over** when validated: uncomment and run Step 9 in the script
 
 ---
@@ -330,6 +330,6 @@ exits cleanly with `✅ ... already registered. Nothing to do.`
 
 ### After running
 
-1. Re-test the OAuth PKCE flow: `python client/test_oauth_client.py`
+1. Re-test the OAuth PKCE flow: `uv run client/test_client.py repro`
 2. Verify `/.well-known/oauth-authorization-server` advertises both loopback URIs
 3. Confirm CORS on `cloud-helper-mcp` allows Foundry/VS Code origins

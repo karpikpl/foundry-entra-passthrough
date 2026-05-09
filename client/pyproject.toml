@@ -1,18 +1,15 @@
 [project]
 name = "mcp-oauth-test-client"
 version = "0.1.0"
-description = "Minimal OAuth 2.0 PKCE test client for MCP servers"
 requires-python = ">=3.11"
 dependencies = [
-    "requests>=2.31",
+    "httpx>=0.27",
+    "click>=8.1",
 ]
-
-[project.scripts]
-test-oauth-client = "test_oauth_client:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-package = true
+package = false

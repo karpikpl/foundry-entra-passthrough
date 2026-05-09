@@ -13,4 +13,4 @@ client-install:
 	cd client && uv sync
 
 client-run:
-	cd client && uv run python test_oauth_client.py --server-url $(SERVER_URL)
+	cd client && uv run test_client.py $(TARGET)
