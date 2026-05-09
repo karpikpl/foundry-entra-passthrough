@@ -95,3 +95,37 @@ az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" 
 4. Clients automatically use this metadata to route tokens through Entra
 
 **Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
+
+### 2026-05-08T22:48:54Z — RS-mode Entra Setup Script Written
+
+**Script:** `scripts/setup-entra-rs-mode.sh`  
+**Docs:** Updated `scripts/README.md` with RS-mode guidance  
+**Decision:** `.squad/decisions/inbox/amos-entra-rs-mode-script.md`
+
+**What it does:**
+- Creates or reuses Entra app registration for RS-mode (Resource Server)
+- Sets Application ID URI: `api://{client_id}`
+- Defines OAuth2 delegated permission scope: `mcp.access`
+- Configures token version v2 (required for Bearer token validation)
+- Accepts params: `--tenant-id`, `--subscription`, `--app-name`, `--dry-run`
+- Idempotent: safe to run multiple times
+- Dry-run mode: shows what would happen without making changes
+
+**Key insight:** This is fundamentally different from `fix-entra-redirect-uri.sh`. The redirect URI fix handles H1 (test clients). RS-mode setup handles the production architecture (H2 root cause). Clients don't use the server's `/token` endpoint — they get tokens directly from Entra and POST them as Bearer tokens. The server validates tokens via JWT inspection.
+
+**Architecture:** RFC 9728 (Protected Resource Model). VS Code and AI Foundry already implement this — they obtain tokens from Entra and send Bearer tokens to protected APIs. No redirect flow, no `/token` endpoint on server.
+
+**Usage order:**
+1. Run RS-mode setup first (`setup-entra-rs-mode.sh`)
+2. Optionally run redirect URI fix (`fix-entra-redirect-uri.sh`) if testing with loopback clients
+
+**Next step:** Server-side implementation must validate Bearer tokens using JWT inspection middleware. This completes the RS-mode architecture.
+
+### 2026-05-08T23:04:39.683-04:00 — Two-app-registration infra playbook completed
+
+**Decision:** `.squad/decisions/archive/amos-two-appreg-infra-plan.md`
+
+- Wrote the operator playbook to provision **repro** and **fixed** Entra app registrations with `api://<client_id>/mcp.access` exposed on both.
+- Recommended a new `cloud-helper-fastmcp` App Service with a `staging` slot to isolate the RS-mode rollout from the legacy app.
+- Declared `CLIENT_ID`, `AUDIENCE`, `RESOURCE_HOST`, `AZURE_CLIENT_ID`, and `AZURE_TENANT_ID` as sticky slot settings.
+- Proposed mapping: production slot = repro, staging slot = fixed; slot swap is not the main auth-profile switch.

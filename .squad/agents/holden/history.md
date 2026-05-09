@@ -54,3 +54,25 @@
 4. Clients automatically use this metadata to route tokens through Entra
 
 **Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
+
+### 2026-05-08T22:48:54Z — BUILD DECISION: FastMCP RS-mode from Scratch
+
+**Piotr confirmed:** Original `cloud-helper-mcp` source is not available. Team will build new.
+
+**Build decision approved:**
+- **Framework:** FastMCP (Python) — `mcp[cli]` package
+- **Mode:** RS-mode (Resource Server), NOT AS-mode
+- **Auth:** Bearer token validation against Entra JWKS; RFC 9728 discovery
+- **Scope:** Hello World server — auth plumbing is the deliverable
+- **Team assignments:** Naomi building `server/`, Amos building Entra RS-mode registration script
+
+**Why:** VS Code and AI Foundry are RS-mode clients. They acquire tokens from Entra directly and inject Bearer tokens. Building AS-mode proxy (original attempt) causes the hang we debugged.
+
+### 2026-05-09T03:04:39Z — Two-app-registration + slot strategy decision completed
+
+**Decision:** `.squad/decisions/archive/holden-two-appreg-slot-strategy.md`
+
+- Approved two Entra app registrations for the same FastMCP RS-mode server: **repro** keeps `http://localhost` only; **fixed** adds `http://127.0.0.1`.
+- Recommended using slot URLs as two live auth profiles rather than relying on slot swap as the main broken/fixed switch.
+- Preferred mapping: staging slot = repro, production slot = fixed.
+- Marked `CLIENT_ID`, `AUDIENCE`, and `RESOURCE_HOST` as sticky slot settings.

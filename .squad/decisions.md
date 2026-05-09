@@ -173,6 +173,44 @@ az webapp cors add --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp 
 - This is a separate operational issue but not the cause of the OAuth flow hang
 - Should be addressed during remediation to enable diagnostic probes
 
+---
+
+### D8: Two app registrations + slot URL strategy
+**By:** Holden (Lead / Auth Architect)  
+**Date:** 2026-05-09T03:04:39Z  
+**Status:** APPROVED FOR PROVISIONING  
+**Source:** `.squad/decisions/archive/holden-two-appreg-slot-strategy.md`
+
+**Summary:** Use two single-tenant Entra app registrations for the same FastMCP RS-mode server: a **repro** registration that keeps only `http://localhost`, and a **fixed** registration that adds `http://127.0.0.1`. Keep both auth profiles live in parallel on App Service slots, use slot URLs directly for broken vs fixed demos, and keep `CLIENT_ID`, `AUDIENCE`, and `RESOURCE_HOST` sticky per slot.
+
+**Holden slot mapping:**
+- staging slot = repro (broken)
+- production slot = fixed
+
+---
+
+### D9: Two app registration provisioning playbook
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-08T23:04:39.683-04:00  
+**Status:** READY TO RUN  
+**Source:** `.squad/decisions/archive/amos-two-appreg-infra-plan.md`
+
+**Summary:** Provision two RS-mode Entra app registrations via `az` CLI, expose `api://<client_id>/mcp.access` on both, and host the new FastMCP deployment on a new App Service with a `staging` slot. Keep `CLIENT_ID`, `AUDIENCE`, `RESOURCE_HOST`, and compatibility auth settings sticky; use app-settings updates to cut production between auth profiles instead of relying on slot swap alone.
+
+**Amos slot mapping:**
+- production slot = repro (broken)
+- staging slot = fixed
+
+---
+
+### D10: Slot assignment conflict between Holden and Amos
+**Date:** 2026-05-09T03:04:39Z  
+**Status:** UNRESOLVED — pending Piotr's call
+
+- **Holden:** staging slot = repro (broken), production slot = fixed
+- **Amos:** production slot = repro (broken), staging slot = fixed
+- Do not treat slot-specific broken/fixed assignment as settled until Piotr chooses the canonical mapping.
+
 ## Governance
 
 - All meaningful changes require team consensus
