@@ -1,0 +1,16 @@
+{
+  "assignments": [
+    {
+      "assignment_id": "mcp-oauth-2026-05-08",
+      "universe": "The Expanse",
+      "created_at": "2026-05-08T21:37:00Z",
+      "agents": [
+        { "name": "holden", "role": "Lead / Auth Architect" },
+        { "name": "naomi", "role": "Backend Dev" },
+        { "name": "amos", "role": "Infra / DevOps" },
+        { "name": "alex", "role": "MCP Client Dev" },
+        { "name": "drummer", "role": "Tester / QA" }
+      ]
+    }
+  ]
+}

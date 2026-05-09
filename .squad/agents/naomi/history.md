@@ -7,6 +7,24 @@
 
 ## Learnings
 
+### 2026-05-09T04:22:42Z — UV migration: server/ and client/
+
+- **Entry point:** `server.py` exposes a module-level `app = create_app()` and the `if __name__ == "__main__":` block. Refactored into a proper `main()` function so `[project.scripts]` can reference `server:main`. The uvicorn startup in `main()` reads `settings.port` (env-driven via `PORT`, default 8000).
+- **server/ UV project:** `pyproject.toml` with `name = "cloud-helper-fastmcp"`, requires Python ≥ 3.12, resolved to 44 packages in `uv.lock`. Dropped `fastapi` (not imported directly — Starlette is pulled via `mcp[cli]`) and `python-dotenv` (covered by `pydantic-settings`). Upgraded `cryptography` floor to ≥42.0, `uvicorn[standard]` floor to ≥0.29.
+- **client/ UV project:** `pyproject.toml` with `name = "mcp-oauth-test-client"`. Only external dep is `requests` — all other imports in `test_oauth_client.py` are stdlib. Resolved to 6 packages.
+- **Startup script:** `server/startup.sh` uses `uv run uvicorn server:app` and reads `${PORT:-8080}` — App Service injects `PORT` automatically. Set startup command to `bash startup.sh`.
+- **Makefile:** `Makefile` at repo root with `install`, `dev`, `run-uvx`, `client-install`, `client-run` targets.
+- **App Service deploy note:** `uvx --from ./server cloud-helper-fastmcp` works for zero-install runs if uv is on the App Service PATH (requires custom startup or base image with uv). `bash startup.sh` is the safer option for App Service.
+- **`requirements.txt` retention:** Both `server/` and `client/` keep their `requirements.txt` with a `DEPRECATED` notice at the top. Useful as a pip emergency fallback without uv.
+
+### 2026-05-08T22:48:54Z — Built replacement FastMCP RS-mode OAuth server
+
+- Built a fresh `server/` implementation that uses **RS-mode OAuth**: root `/.well-known/oauth-protected-resource` points clients at Entra, and the MCP endpoint only accepts Bearer tokens instead of exposing `/authorize` or `/token`.
+- Implemented `EntraTokenValidator` with **PyJWT + cryptography**, a **1-hour JWKS cache**, and explicit validation for signature, issuer, audience, and expiry.
+- Mounted FastMCP under `/mcp` inside a Starlette app so authentication middleware runs first and `/.well-known/` discovery stays public at the root.
+- Passed validated claims through a request-scoped context variable so the hello tool can confirm authenticated execution and log the caller subject.
+
+
 ### 2026-05-08T17:46:22Z — Cross-Agent Finding: Root cause analysis (from Holden)
 
 **H1 (HIGH): Redirect URI mismatch** — The Entra app registration lists `http://localhost` (any port). But Entra's redirect lands on `http://127.0.0.1:<port>/`. Per RFC 8252 §8.3, loopback redirects MUST use `http://127.0.0.1` or `http://[::1]` — NOT `http://localhost`. Entra's platform may not treat these as equivalent. If client listener is on `127.0.0.1` but Entra redirects to `localhost` (or vice versa), callback never arrives.

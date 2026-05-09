@@ -121,6 +121,62 @@ az ad app update --id <APP_ID> --public-client-redirect-uris "http://localhost" 
 
 **Next step:** Server-side implementation must validate Bearer tokens using JWT inspection middleware. This completes the RS-mode architecture.
 
+### 2026-05-09T04:11:47Z — Consolidated provisioning script written
+
+**Script:** `scripts/provision-two-app-regs.sh`
+**Docs:** Updated `scripts/README.md` with full section for the new script
+**Decision:** `.squad/decisions/inbox/amos-provision-script-complete.md`
+
+**What the script does (end-to-end runnable):**
+- Step 0: Preflight — az/jq/python3 check, subscription set, RG verify
+- Step 1: `configure_rs_api` helper function — RS-mode setup (identifier URI, mcp.access scope, token v2)
+- Step 2: Idempotent create/verify `cloud-helper-mcp-repro` (public-client: `http://localhost` only)
+- Step 3: Idempotent create/verify `cloud-helper-mcp-fixed` (public-client: `http://localhost` + `http://127.0.0.1`)
+- Step 4: Read-only inspect of legacy `cloud-helper-mcp` (slots + access restrictions)
+- Step 5: Create `cloud-helper-fastmcp` App Service (reuse existing plan) + staging slot
+- Step 6: Shared non-sticky settings (TENANT_ID, PORT=8000, SCM_DO_BUILD_DURING_DEPLOYMENT=true)
+- Step 7: Sticky slot settings — production→REPRO, staging→FIXED
+- Step 8: Validation reads (app reg URIs/scopes, slot appsettings)
+- Step 9: Commented-out cutover command to flip production to FIXED when ready
+- Summary with test sequence printed at end
+
+**Slot assignment locked (Piotr directive):**
+- production = `cloud-helper-mcp-repro` (H1 bug preserved)
+- staging = `cloud-helper-mcp-fixed` (H1 corrected)
+
+**Design notes:**
+- `set -euo pipefail` throughout
+- `--dry-run` flag: reads still execute, writes printed via `dryrun()`
+- Idempotent: `az ad app list --filter` before create; `az webapp show` before create; slot show before create
+- `configure_rs_api` preserves existing scope GUID across re-runs (no stale duplicate scopes)
+- Sticky settings applied with `--slot-settings` (not `--settings`) so swap never silently changes auth profile
+- Style consistent with existing scripts (color helpers, same function signatures)
+
+### 2026-05-09T04:22:42Z — AZD + Bicep migration completed
+
+**Decision:** `.squad/decisions/inbox/amos-azd-bicep-migration.md`
+
+**Files created:**
+- `azure.yaml` — AZD project root; binds `server/` (Python) to appservice host `cloud-helper-fastmcp`
+- `infra/bicepconfig.json` — enables `microsoftGraphV1` Bicep extension
+- `infra/main.bicep` — orchestrator calling appRegistrations + appService modules
+- `infra/main.parameters.json` — AZD env var bindings (`AZURE_ENV_NAME`, `AZURE_TENANT_ID`, `AZURE_LOCATION`, `EXISTING_PLAN_NAME`)
+- `infra/modules/appRegistrations.bicep` — two Entra app regs via `Microsoft.Graph/applications@v1.0`
+- `infra/modules/appService.bicep` — App Service + staging slot + sticky settings
+- `infra/README.md` — operator runbook (`azd auth login` → `azd env new` → `azd provision` → `azd deploy`)
+- `scripts/provision-two-app-regs.sh` — updated header to mark as superseded (kept as fallback)
+
+**Key learnings:**
+- **MS Graph Bicep identifierUris limitation:** `Microsoft.Graph/applications@v1.0` cannot self-reference `appId` within the same resource block to form `api://{appId}`. Used `api://cloud-helper-mcp-repro` / `api://cloud-helper-mcp-fixed` pattern instead (display-name based, valid and unique). Documented a post-provision `az ad app update` step for teams needing canonical format.
+- **MS Graph Bicep requires permission:** deploying principal needs `Application.ReadWrite.OwnedBy` on MS Graph; without it, `azd provision` fails on the Graph resources. Document this clearly.
+- **AZD service discovery:** tag App Service with `azd-service-name: server` matching `azure.yaml` service name — AZD finds it automatically, no hardcoded resource name in `azd deploy`.
+- **Existing plan reuse:** handled via optional `existingPlanName` parameter with `existing` resource reference — conditional on whether the param is empty.
+- **Scope GUIDs:** used Bicep `guid()` function (deterministic, input-based) for `oauth2PermissionScopes[].id` — stable across re-deploys for the same env.
+
+**Slot assignment (unchanged from D9, Piotr directive):**
+- production = repro (H1 bug preserved)
+- staging = fixed (H1 corrected)
+
 ### 2026-05-08T23:04:39.683-04:00 — Two-app-registration infra playbook completed
 
 **Decision:** `.squad/decisions/archive/amos-two-appreg-infra-plan.md`
