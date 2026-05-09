@@ -3,12 +3,12 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    tenant_id: str = Field(alias="TENANT_ID")
+    tenant_id: str = Field(validation_alias=AliasChoices("TENANT_ID", "AZURE_TENANT_ID"))
     client_id: str = Field(alias="CLIENT_ID")
     audience: str | None = Field(default=None, alias="AUDIENCE")
     resource_host: str = Field(alias="RESOURCE_HOST")

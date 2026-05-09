@@ -14,3 +14,7 @@ infra/**/*.json
 
 # Local client environment generated from AZD outputs
 client/.env
+
+# Naomi debug artifacts
+.azure-debug*/
+server/__pycache__/

@@ -8,7 +8,7 @@
 //
 // Slot assignment is LOCKED per Piotr directive (2026-05-09, decisions.md D9).
 //
-// Sticky settings (CLIENT_ID, AUDIENCE, RESOURCE_HOST, AZURE_TENANT_ID) ensure
+// Sticky settings (CLIENT_ID, AUDIENCE, RESOURCE_HOST, TENANT_ID/AZURE_TENANT_ID) ensure
 // a slot swap (code rollout) NEVER silently changes which app reg is in use.
 //
 // The App Service is tagged with azd-service-name=server so AZD knows which
@@ -87,6 +87,7 @@ resource webApp 'Microsoft.Web/sites@2022-09-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.12'
+      appCommandLine: 'bash startup.sh'
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
@@ -105,6 +106,7 @@ resource webAppSlotSettings 'Microsoft.Web/sites/config@2022-09-01' = {
       'CLIENT_ID'
       'AUDIENCE'
       'RESOURCE_HOST'
+      'TENANT_ID'
       'AZURE_TENANT_ID'
     ]
   }
@@ -119,6 +121,7 @@ resource webAppStickyProd 'Microsoft.Web/sites/config@2022-09-01' = {
     CLIENT_ID: reproClientId
     AUDIENCE: reproAudience
     RESOURCE_HOST: '${webAppName}.azurewebsites.net'
+    TENANT_ID: tenantId
     AZURE_TENANT_ID: tenantId
     // Non-sticky shared settings (duplicated here so both configs are set together)
     PORT: '8000'
@@ -143,6 +146,7 @@ resource stagingSlot 'Microsoft.Web/sites/slots@2022-09-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.12'
+      appCommandLine: 'bash startup.sh'
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
@@ -160,6 +164,7 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
     CLIENT_ID: fixedClientId
     AUDIENCE: fixedAudience
     RESOURCE_HOST: '${webAppName}-staging.azurewebsites.net'
+    TENANT_ID: tenantId
     AZURE_TENANT_ID: tenantId
     // Non-sticky shared settings
     PORT: '8000'
