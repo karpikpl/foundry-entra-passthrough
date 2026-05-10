@@ -18,40 +18,39 @@ import anyio
 import click
 import httpx
 from dotenv import load_dotenv
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from fastmcp import Client
+from fastmcp.client.auth import BearerAuth
 
 ENV_FILE = Path(__file__).with_name(".env")
 load_dotenv(ENV_FILE)
 
-TENANT_ID = os.environ.get("TENANT_ID", "c29d6c2b-f765-41b3-b2a2-971a14239dfd")
 
-ENVIRONMENTS = {
-    "repro": {
-        "server_url": os.environ.get(
-            "REPRO_SERVER_URL", "https://cloud-helper-fastmcp.azurewebsites.net"
-        ),
-        "client_id": os.environ.get(
-            "REPRO_CLIENT_ID", "52e5e7ea-ba6a-4d66-91a3-785d2edc4d43"
-        ),
-        "audience": os.environ.get(
-            "REPRO_AUDIENCE", "api://cloud-helper-mcp-repro-mcp-auth-test"
-        ),
-        "expect_success": False,
-    },
-    "fixed": {
-        "server_url": os.environ.get(
-            "FIXED_SERVER_URL", "https://cloud-helper-fastmcp-staging.azurewebsites.net"
-        ),
-        "client_id": os.environ.get(
-            "FIXED_CLIENT_ID", "7810abd8-ed7b-40f4-a447-04cc1658eab6"
-        ),
-        "audience": os.environ.get(
-            "FIXED_AUDIENCE", "api://cloud-helper-mcp-fixed-mcp-auth-test"
-        ),
-        "expect_success": True,
-    },
-}
+def _require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise click.ClickException(
+            f"Missing required environment variable '{name}'. "
+            f"Run 'azd provision' or populate client/.env."
+        )
+    return value
+
+
+def get_config(mode: str) -> dict[str, Any]:
+    if mode == "repro":
+        return {
+            "server_url": _require_env("REPRO_SERVER_URL"),
+            "client_id": _require_env("REPRO_CLIENT_ID"),
+            "audience": _require_env("REPRO_AUDIENCE"),
+            "expect_success": False,
+        }
+    if mode == "fixed":
+        return {
+            "server_url": _require_env("FIXED_SERVER_URL"),
+            "client_id": _require_env("FIXED_CLIENT_ID"),
+            "audience": _require_env("FIXED_AUDIENCE"),
+            "expect_success": True,
+        }
+    raise ValueError(f"Unknown mode: {mode}")
 
 
 @dataclass
@@ -192,16 +191,12 @@ def exchange_code_for_token(
 
 
 def call_mcp_tools_list(server_url: str, access_token: str) -> list:
-    """Use the official MCP SDK client to call tools/list."""
+    """Call tools/list using FastMCP client with Bearer auth."""
 
     async def _run() -> list:
         url = f"{server_url.rstrip('/')}/mcp/"
-        headers = {"Authorization": f"Bearer {access_token}"}
-        async with streamablehttp_client(url, headers=headers) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.list_tools()
-                return result.tools
+        async with Client(url, auth=BearerAuth(access_token)) as client:
+            return await client.list_tools()
 
     return anyio.run(_run)
 
@@ -215,7 +210,8 @@ def run_flow(
     timeout: int,
     open_browser: bool,
 ) -> None:
-    config = ENVIRONMENTS[mode]
+    tenant_id = _require_env("TENANT_ID")
+    config = get_config(mode)
     effective_scope = scope or f"{audience}/mcp.access openid profile offline_access"
     callback_port = find_open_port()
     redirect_uri = f"http://127.0.0.1:{callback_port}"
@@ -244,7 +240,7 @@ def run_flow(
 
         click.echo("🔑 Starting OAuth PKCE flow...")
         click.echo(f"📡 Listening on {redirect_uri}...")
-        click.echo(f"🧭 Tenant ID: {TENANT_ID}")
+        click.echo(f"🧭 Tenant ID: {tenant_id}")
         click.echo(f"🪪 Client ID: {client_id}")
         click.echo(f"🎯 Scope: {effective_scope}")
         click.echo(
@@ -388,7 +384,7 @@ def repro(
     timeout: int,
     open_browser: bool,
 ) -> None:
-    config = ENVIRONMENTS["repro"]
+    config = get_config("repro")
     run_flow(
         mode="repro",
         server_url=server_url or config["server_url"],
@@ -410,7 +406,7 @@ def fixed(
     timeout: int,
     open_browser: bool,
 ) -> None:
-    config = ENVIRONMENTS["fixed"]
+    config = get_config("fixed")
     run_flow(
         mode="fixed",
         server_url=server_url or config["server_url"],

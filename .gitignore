@@ -15,6 +15,9 @@ infra/**/*.json
 # Local client environment generated from AZD outputs
 client/.env
 
+# VS Code MCP config generated from AZD outputs (environment-specific URLs)
+.vscode/mcp.json
+
 # Naomi debug artifacts
 .azure-debug*/
 server/__pycache__/

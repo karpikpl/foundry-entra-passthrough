@@ -3,6 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CLIENT_ENV_FILE="$ROOT_DIR/client/.env"
+VSCODE_MCP_FILE="$ROOT_DIR/.vscode/mcp.json"
 
 AZD_ENV_VALUES=$(azd env get-values)
 if [ -z "$AZD_ENV_VALUES" ]; then
@@ -46,3 +47,23 @@ EOF
 
 echo "Wrote $CLIENT_ENV_FILE"
 sed -n '1,999p' "$CLIENT_ENV_FILE"
+
+# Write VS Code MCP config so the server is immediately usable from VS Code.
+# VS Code discovers OAuth from /.well-known endpoints automatically — only the
+# URL is needed. The vscode.dev/redirect URI is already registered in Entra.
+mkdir -p "$ROOT_DIR/.vscode"
+cat > "$VSCODE_MCP_FILE" <<EOF
+{
+  "servers": {
+    "cloud-helper-fixed": {
+      "type": "http",
+      "url": "$FIXED_SERVER_URL/mcp/"
+    },
+    "cloud-helper-repro": {
+      "type": "http",
+      "url": "$REPRO_SERVER_URL/mcp/"
+    }
+  }
+}
+EOF
+echo "Wrote $VSCODE_MCP_FILE"
