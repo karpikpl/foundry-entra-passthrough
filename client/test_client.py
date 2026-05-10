@@ -14,9 +14,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import anyio
 import click
 import httpx
 from dotenv import load_dotenv
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 ENV_FILE = Path(__file__).with_name(".env")
 load_dotenv(ENV_FILE)
@@ -25,15 +28,27 @@ TENANT_ID = os.environ.get("TENANT_ID", "c29d6c2b-f765-41b3-b2a2-971a14239dfd")
 
 ENVIRONMENTS = {
     "repro": {
-        "server_url": os.environ.get("REPRO_SERVER_URL", "https://cloud-helper-fastmcp.azurewebsites.net"),
-        "client_id": os.environ.get("REPRO_CLIENT_ID", "52e5e7ea-ba6a-4d66-91a3-785d2edc4d43"),
-        "audience": os.environ.get("REPRO_AUDIENCE", "api://cloud-helper-mcp-repro-mcp-auth-test"),
+        "server_url": os.environ.get(
+            "REPRO_SERVER_URL", "https://cloud-helper-fastmcp.azurewebsites.net"
+        ),
+        "client_id": os.environ.get(
+            "REPRO_CLIENT_ID", "52e5e7ea-ba6a-4d66-91a3-785d2edc4d43"
+        ),
+        "audience": os.environ.get(
+            "REPRO_AUDIENCE", "api://cloud-helper-mcp-repro-mcp-auth-test"
+        ),
         "expect_success": False,
     },
     "fixed": {
-        "server_url": os.environ.get("FIXED_SERVER_URL", "https://cloud-helper-fastmcp-staging.azurewebsites.net"),
-        "client_id": os.environ.get("FIXED_CLIENT_ID", "7810abd8-ed7b-40f4-a447-04cc1658eab6"),
-        "audience": os.environ.get("FIXED_AUDIENCE", "api://cloud-helper-mcp-fixed-mcp-auth-test"),
+        "server_url": os.environ.get(
+            "FIXED_SERVER_URL", "https://cloud-helper-fastmcp-staging.azurewebsites.net"
+        ),
+        "client_id": os.environ.get(
+            "FIXED_CLIENT_ID", "7810abd8-ed7b-40f4-a447-04cc1658eab6"
+        ),
+        "audience": os.environ.get(
+            "FIXED_AUDIENCE", "api://cloud-helper-mcp-fixed-mcp-auth-test"
+        ),
         "expect_success": True,
     },
 }
@@ -91,7 +106,9 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
 
 def generate_code_verifier() -> str:
-    verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode("ascii")
+    verifier = (
+        base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode("ascii")
+    )
     if not 43 <= len(verifier) <= 128:
         raise ValueError("PKCE code_verifier length is invalid")
     return verifier
@@ -174,25 +191,19 @@ def exchange_code_for_token(
     return payload
 
 
-def call_mcp_tools_list(client: httpx.Client, server_url: str, access_token: str) -> dict[str, Any]:
-    try:
-        response = client.post(
-            f"{server_url.rstrip('/')}/mcp",
-            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json, text/event-stream",
-            },
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise click.ClickException(f"MCP tools/list failed: {exc}") from exc
+def call_mcp_tools_list(server_url: str, access_token: str) -> list:
+    """Use the official MCP SDK client to call tools/list."""
 
-    payload = response.json()
-    if not isinstance(payload, dict):
-        raise click.ClickException("MCP endpoint did not return a JSON object")
-    return payload
+    async def _run() -> list:
+        url = f"{server_url.rstrip('/')}/mcp/"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with streamablehttp_client(url, headers=headers) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.list_tools()
+                return result.tools
+
+    return anyio.run(_run)
 
 
 def run_flow(
@@ -212,7 +223,7 @@ def run_flow(
     code_challenge = generate_code_challenge(code_verifier)
     state = secrets.token_urlsafe(24)
 
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+    with httpx.Client(timeout=30.0, follow_redirects=True, http2=False) as client:
         protected_resource = fetch_json(
             client,
             f"{server_url.rstrip('/')}/.well-known/oauth-protected-resource",
@@ -227,17 +238,23 @@ def run_flow(
         authorization_endpoint = authorization_server.get("authorization_endpoint")
         token_endpoint = authorization_server.get("token_endpoint")
         if not authorization_endpoint or not token_endpoint:
-            raise click.ClickException("Authorization server metadata is missing authorization/token endpoints")
+            raise click.ClickException(
+                "Authorization server metadata is missing authorization/token endpoints"
+            )
 
         click.echo("🔑 Starting OAuth PKCE flow...")
         click.echo(f"📡 Listening on {redirect_uri}...")
         click.echo(f"🧭 Tenant ID: {TENANT_ID}")
         click.echo(f"🪪 Client ID: {client_id}")
         click.echo(f"🎯 Scope: {effective_scope}")
-        click.echo(f"🛡️ Authorization servers: {protected_resource.get('authorization_servers', [])}")
+        click.echo(
+            f"🛡️ Authorization servers: {protected_resource.get('authorization_servers', [])}"
+        )
 
         callback_server = OAuthCallbackServer(("127.0.0.1", callback_port))
-        callback_thread = threading.Thread(target=callback_server.serve_forever, daemon=True)
+        callback_thread = threading.Thread(
+            target=callback_server.serve_forever, daemon=True
+        )
         callback_thread.start()
 
         auth_url = build_authorization_url(
@@ -252,7 +269,9 @@ def run_flow(
         if open_browser:
             opened = webbrowser.open(auth_url)
             if not opened:
-                click.echo("⚠️ Could not open a browser automatically. Visit the URL above manually.")
+                click.echo(
+                    "⚠️ Could not open a browser automatically. Visit the URL above manually."
+                )
         else:
             click.echo("ℹ️ Browser launch disabled; visit the URL above manually.")
 
@@ -263,7 +282,9 @@ def run_flow(
 
         if not callback_received or callback_server.result is None:
             if not config["expect_success"]:
-                click.echo("❌ REPRO CONFIRMED: no callback received — Entra likely rejected the 127.0.0.1 redirect URI before redirecting")
+                click.echo(
+                    "❌ REPRO CONFIRMED: no callback received — Entra likely rejected the 127.0.0.1 redirect URI before redirecting"
+                )
                 return
             raise click.ClickException("Timed out waiting for the OAuth callback")
 
@@ -278,7 +299,9 @@ def run_flow(
         if result.state != state:
             raise click.ClickException("OAuth state mismatch")
         if not result.code:
-            raise click.ClickException("OAuth callback did not include an authorization code")
+            raise click.ClickException(
+                "OAuth callback did not include an authorization code"
+            )
 
         token_payload = exchange_code_for_token(
             client=client,
@@ -290,19 +313,57 @@ def run_flow(
         )
         access_token = token_payload.get("access_token")
         if not access_token:
-            raise click.ClickException(f"Token response did not include access_token: {json.dumps(token_payload, indent=2)}")
+            raise click.ClickException(
+                f"Token response did not include access_token: {json.dumps(token_payload, indent=2)}"
+            )
 
-        mcp_payload = call_mcp_tools_list(client, server_url, access_token)
-        click.echo(f"✅ FIX CONFIRMED: {json.dumps(mcp_payload, indent=2)}")
+        # Decode without verification to log token claims for debugging
+        try:
+            import base64 as _b64
+
+            parts = access_token.split(".")
+            if len(parts) >= 2:
+                padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
+                claims = json.loads(_b64.urlsafe_b64decode(padded))
+                click.echo(
+                    f"🔎 Token claims — aud={claims.get('aud')!r} scp={claims.get('scp')!r} iss={claims.get('iss')!r}"
+                )
+        except Exception as exc:
+            click.echo(f"⚠️ Could not decode token claims: {exc}")
+
+        tools = call_mcp_tools_list(server_url, access_token)
+        tool_names = [t.name for t in tools]
+        click.echo(
+            f"✅ FIX CONFIRMED: tools/list returned {len(tools)} tool(s): {tool_names}"
+        )
 
 
 COMMON_OPTIONS = [
-    click.option("--server-url", help="Override the default server URL for the selected environment."),
-    click.option("--client-id", help="Override the default Entra app registration client ID."),
-    click.option("--audience", help="Override the default audience prefix (for example api://your-app-id-uri)."),
+    click.option(
+        "--server-url",
+        help="Override the default server URL for the selected environment.",
+    ),
+    click.option(
+        "--client-id", help="Override the default Entra app registration client ID."
+    ),
+    click.option(
+        "--audience",
+        help="Override the default audience prefix (for example api://your-app-id-uri).",
+    ),
     click.option("--scope", help="Override the OAuth scope string sent to Entra."),
-    click.option("--timeout", default=180, show_default=True, type=int, help="Seconds to wait for the OAuth callback."),
-    click.option("--open-browser/--no-open-browser", default=True, show_default=True, help="Open the authorization URL in a browser automatically."),
+    click.option(
+        "--timeout",
+        default=180,
+        show_default=True,
+        type=int,
+        help="Seconds to wait for the OAuth callback.",
+    ),
+    click.option(
+        "--open-browser/--no-open-browser",
+        default=True,
+        show_default=True,
+        help="Open the authorization URL in a browser automatically.",
+    ),
 ]
 
 

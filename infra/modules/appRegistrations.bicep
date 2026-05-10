@@ -146,11 +146,11 @@ output reproClientId string = reproApp.appId
 @description('Client ID of the fixed app registration (H1 corrected).')
 output fixedClientId string = fixedApp.appId
 
-@description('Full audience/scope for the repro app (used as AUDIENCE sticky setting on production slot).')
-output reproAudience string = '${reproIdentifierUri}/mcp.access'
+@description('Audience for the repro app — Entra v2 tokens carry aud=clientId (GUID), not the identifier URI.')
+output reproAudience string = reproApp.appId
 
-@description('Full audience/scope for the fixed app (used as AUDIENCE sticky setting on staging slot).')
-output fixedAudience string = '${fixedIdentifierUri}/mcp.access'
+@description('Audience for the fixed app — Entra v2 tokens carry aud=clientId (GUID), not the identifier URI.')
+output fixedAudience string = fixedApp.appId
 
 @description('Application ID URI for repro app (for Bearer token validation).')
 output reproIdentifierUri string = reproIdentifierUri

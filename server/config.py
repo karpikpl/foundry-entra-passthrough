@@ -8,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    tenant_id: str = Field(validation_alias=AliasChoices("TENANT_ID", "AZURE_TENANT_ID"))
+    tenant_id: str = Field(
+        validation_alias=AliasChoices("TENANT_ID", "AZURE_TENANT_ID")
+    )
     client_id: str = Field(alias="CLIENT_ID")
     audience: str | None = Field(default=None, alias="AUDIENCE")
     resource_host: str = Field(alias="RESOURCE_HOST")
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
 
     @property
     def resolved_audience(self) -> str:
-        return self.audience or f"api://{self.client_id}"
+        return self.audience or self.client_id
 
     @property
     def issuer(self) -> str:

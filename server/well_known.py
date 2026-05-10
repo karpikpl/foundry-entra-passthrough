@@ -47,13 +47,23 @@ async def oauth_protected_resource(request: Request) -> JSONResponse:
 
 
 async def oauth_authorization_server(request: Request) -> JSONResponse:
-    cache: AuthorizationServerMetadataCache = request.app.state.authorization_server_metadata_cache
+    cache: AuthorizationServerMetadataCache = (
+        request.app.state.authorization_server_metadata_cache
+    )
     metadata = await cache.get_metadata()
     return JSONResponse(metadata)
 
 
 def build_well_known_routes() -> list[Route]:
     return [
-        Route("/.well-known/oauth-protected-resource", endpoint=oauth_protected_resource, methods=["GET"]),
-        Route("/.well-known/oauth-authorization-server", endpoint=oauth_authorization_server, methods=["GET"]),
+        Route(
+            "/.well-known/oauth-protected-resource",
+            endpoint=oauth_protected_resource,
+            methods=["GET"],
+        ),
+        Route(
+            "/.well-known/oauth-authorization-server",
+            endpoint=oauth_authorization_server,
+            methods=["GET"],
+        ),
     ]
