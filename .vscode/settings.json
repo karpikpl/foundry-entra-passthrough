@@ -1,0 +1,7 @@
+{
+  // Workaround for VS Code issue #299599:
+  // MSAL native broker (WAM) fails with Entra-protected MCP servers in custom tenants.
+  // Disabling the broker forces browser-based PKCE auth which works correctly.
+  // https://github.com/microsoft/vscode/issues/299599
+  "microsoft-authentication.implementation": "msal-no-broker"
+}
