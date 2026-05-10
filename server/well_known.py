@@ -37,7 +37,7 @@ async def oauth_protected_resource(request: Request) -> JSONResponse:
     settings: Settings = request.app.state.settings
     return JSONResponse(
         {
-            "resource": settings.resource_url,
+            "resource": f"{settings.resource_url}/mcp",
             "authorization_servers": [settings.issuer],
             "bearer_methods_supported": ["header"],
             "resource_signing_alg_values_supported": ["RS256"],

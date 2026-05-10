@@ -201,7 +201,7 @@ def call_mcp_tools_list(server_url: str, access_token: str) -> list:
     return anyio.run(_run)
 
 
-def run_flow(
+def _run_oauth_flow(
     mode: str,
     server_url: str,
     client_id: str,
@@ -209,8 +209,8 @@ def run_flow(
     scope: str | None,
     timeout: int,
     open_browser: bool,
-) -> None:
-    tenant_id = _require_env("TENANT_ID")
+) -> str | None:
+    """Run full OAuth PKCE flow and return the access token, or None for expected repro failures."""
     config = get_config(mode)
     effective_scope = scope or f"{audience}/mcp.access openid profile offline_access"
     callback_port = find_open_port()
@@ -238,13 +238,14 @@ def run_flow(
                 "Authorization server metadata is missing authorization/token endpoints"
             )
 
-        click.echo("🔑 Starting OAuth PKCE flow...")
-        click.echo(f"📡 Listening on {redirect_uri}...")
-        click.echo(f"🧭 Tenant ID: {tenant_id}")
-        click.echo(f"🪪 Client ID: {client_id}")
-        click.echo(f"🎯 Scope: {effective_scope}")
+        click.echo("🔑 Starting OAuth PKCE flow...", err=True)
+        click.echo(f"📡 Listening on {redirect_uri}...", err=True)
+        click.echo(f"🧭 Tenant ID: {_require_env('TENANT_ID')}", err=True)
+        click.echo(f"🪪 Client ID: {client_id}", err=True)
+        click.echo(f"🎯 Scope: {effective_scope}", err=True)
         click.echo(
-            f"🛡️ Authorization servers: {protected_resource.get('authorization_servers', [])}"
+            f"🛡️ Authorization servers: {protected_resource.get('authorization_servers', [])}",
+            err=True,
         )
 
         callback_server = OAuthCallbackServer(("127.0.0.1", callback_port))
@@ -261,15 +262,16 @@ def run_flow(
             state=state,
             code_challenge=code_challenge,
         )
-        click.echo(f"🌐 Opening browser to: {auth_url}")
+        click.echo(f"🌐 Opening browser to: {auth_url}", err=True)
         if open_browser:
             opened = webbrowser.open(auth_url)
             if not opened:
                 click.echo(
-                    "⚠️ Could not open a browser automatically. Visit the URL above manually."
+                    "⚠️ Could not open a browser automatically. Visit the URL above manually.",
+                    err=True,
                 )
         else:
-            click.echo("ℹ️ Browser launch disabled; visit the URL above manually.")
+            click.echo("ℹ️ Browser launch disabled; visit the URL above manually.", err=True)
 
         callback_received = callback_server.event.wait(timeout)
         callback_server.shutdown()
@@ -279,17 +281,18 @@ def run_flow(
         if not callback_received or callback_server.result is None:
             if not config["expect_success"]:
                 click.echo(
-                    "❌ REPRO CONFIRMED: no callback received — Entra likely rejected the 127.0.0.1 redirect URI before redirecting"
+                    "❌ REPRO CONFIRMED: no callback received — Entra likely rejected the 127.0.0.1 redirect URI before redirecting",
+                    err=True,
                 )
-                return
+                return None
             raise click.ClickException("Timed out waiting for the OAuth callback")
 
         result = callback_server.result
         if result.error:
             message = f"{result.error} — {result.error_description or 'no description provided'}"
             if not config["expect_success"]:
-                click.echo(f"❌ REPRO CONFIRMED: {message}")
-                return
+                click.echo(f"❌ REPRO CONFIRMED: {message}", err=True)
+                return None
             raise click.ClickException(message)
 
         if result.state != state:
@@ -313,7 +316,6 @@ def run_flow(
                 f"Token response did not include access_token: {json.dumps(token_payload, indent=2)}"
             )
 
-        # Decode without verification to log token claims for debugging
         try:
             import base64 as _b64
 
@@ -322,16 +324,33 @@ def run_flow(
                 padded = parts[1] + "=" * (4 - len(parts[1]) % 4)
                 claims = json.loads(_b64.urlsafe_b64decode(padded))
                 click.echo(
-                    f"🔎 Token claims — aud={claims.get('aud')!r} scp={claims.get('scp')!r} iss={claims.get('iss')!r}"
+                    f"🔎 Token claims — aud={claims.get('aud')!r} scp={claims.get('scp')!r} iss={claims.get('iss')!r}",
+                    err=True,
                 )
         except Exception as exc:
-            click.echo(f"⚠️ Could not decode token claims: {exc}")
+            click.echo(f"⚠️ Could not decode token claims: {exc}", err=True)
 
-        tools = call_mcp_tools_list(server_url, access_token)
-        tool_names = [t.name for t in tools]
-        click.echo(
-            f"✅ FIX CONFIRMED: tools/list returned {len(tools)} tool(s): {tool_names}"
-        )
+        return access_token
+
+
+def run_flow(
+    mode: str,
+    server_url: str,
+    client_id: str,
+    audience: str,
+    scope: str | None,
+    timeout: int,
+    open_browser: bool,
+) -> None:
+    access_token = _run_oauth_flow(mode, server_url, client_id, audience, scope, timeout, open_browser)
+    if access_token is None:
+        return  # repro path already printed its message
+
+    tools = call_mcp_tools_list(server_url, access_token)
+    tool_names = [t.name for t in tools]
+    click.echo(
+        f"✅ FIX CONFIRMED: tools/list returned {len(tools)} tool(s): {tool_names}"
+    )
 
 
 COMMON_OPTIONS = [
@@ -416,6 +435,39 @@ def fixed(
         timeout=timeout,
         open_browser=open_browser,
     )
+
+
+@cli.command("fetch-token")
+@apply_common_options
+@click.argument("mode", type=click.Choice(["fixed", "repro"]))
+def fetch_token(
+    mode: str,
+    server_url: str | None,
+    client_id: str | None,
+    audience: str | None,
+    scope: str | None,
+    timeout: int,
+    open_browser: bool,
+) -> None:
+    """Run OAuth PKCE and print the access token to stdout.
+
+    Useful for injecting a token into VS Code's MCP config via inputs.
+
+    Example:
+        uv run python test_client.py fetch-token fixed | pbcopy
+    """
+    config = get_config(mode)
+    token = _run_oauth_flow(
+        mode=mode,
+        server_url=server_url or config["server_url"],
+        client_id=client_id or config["client_id"],
+        audience=audience or config["audience"],
+        scope=scope,
+        timeout=timeout,
+        open_browser=open_browser,
+    )
+    if token:
+        click.echo(token)
 
 
 if __name__ == "__main__":

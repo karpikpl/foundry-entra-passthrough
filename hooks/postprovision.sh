@@ -54,14 +54,21 @@ sed -n '1,999p' "$CLIENT_ENV_FILE"
 mkdir -p "$ROOT_DIR/.vscode"
 cat > "$VSCODE_MCP_FILE" <<EOF
 {
+  "inputs": [
+    {
+      "id": "fixed_bearer_token",
+      "type": "promptString",
+      "description": "Bearer token for cloud-helper-fixed. Get one with: cd client && uv run python test_client.py fetch-token fixed",
+      "password": true
+    }
+  ],
   "servers": {
     "cloud-helper-fixed": {
       "type": "http",
-      "url": "$FIXED_SERVER_URL/mcp/"
-    },
-    "cloud-helper-repro": {
-      "type": "http",
-      "url": "$REPRO_SERVER_URL/mcp/"
+      "url": "$FIXED_SERVER_URL/mcp/",
+      "headers": {
+        "Authorization": "Bearer \${input:fixed_bearer_token}"
+      }
     }
   }
 }
