@@ -87,7 +87,7 @@ cat > "$VSCODE_MCP_FILE" <<EOF
   "servers": {
     "cloud-helper-fixed": {
       "type": "http",
-      "url": "$FIXED_SERVER_URL/mcp/"
+      "url": "$FIXED_SERVER_URL/mcp"
     }
   }
 }
