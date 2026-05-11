@@ -6,7 +6,11 @@ import uvicorn
 from fastmcp import Context, FastMCP
 from fastmcp.server.auth import RemoteAuthProvider
 from fastmcp.server.auth.providers.jwt import JWTVerifier
+from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
 from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.routes import cors_middleware
+from mcp.shared.auth import ProtectedResourceMetadata
+from starlette.routing import Route
 
 from config import get_settings
 
@@ -24,7 +28,31 @@ def _entra_scope_resource() -> str:
         return audience.removesuffix("/mcp.access")
     if settings.client_id.startswith(("api://", "http://", "https://")):
         return settings.client_id.removesuffix("/mcp.access")
-    return f"api://{settings.client_id}"
+    resource_app_id = settings.resource_app_id or settings.client_id
+    return f"api://{resource_app_id}"
+
+
+def _entra_jwt_audience() -> str | list[str]:
+    settings = get_settings()
+    audiences: list[str] = []
+    for candidate in (
+        settings.resource_app_id,
+        settings.client_id,
+        settings.audience,
+    ):
+        if candidate and candidate not in audiences:
+            audiences.append(candidate)
+    return audiences[0] if len(audiences) == 1 else audiences
+
+
+def _protected_resource_metadata() -> ProtectedResourceMetadata:
+    settings = get_settings()
+    return ProtectedResourceMetadata(
+        resource=f"{settings.resource_url}/mcp",
+        authorization_servers=[settings.issuer],
+        scopes_supported=[f"{_entra_scope_resource()}/mcp.access"],
+        resource_name="Cloud Helper MCP",
+    )
 
 
 def extract_token_info() -> dict[str, str]:
@@ -58,7 +86,7 @@ def _create_mcp() -> FastMCP:
     entra_verifier = JWTVerifier(
         jwks_uri=settings.jwks_url,
         issuer=settings.issuer,
-        audience=settings.jwt_audience,
+        audience=_entra_jwt_audience(),
         required_scopes=["mcp.access"],
     )
 
@@ -111,6 +139,19 @@ def hello(name: str, ctx: Context) -> str:
 app = mcp.http_app(
     stateless_http=True,
     json_response=True,
+)
+
+# VS Code probes the root RFC 9728 endpoint before the path-scoped /mcp variant.
+app.router.routes.insert(
+    0,
+    Route(
+        "/.well-known/oauth-protected-resource",
+        endpoint=cors_middleware(
+            ProtectedResourceMetadataHandler(_protected_resource_metadata()).handle,
+            ["GET", "OPTIONS"],
+        ),
+        methods=["GET", "OPTIONS"],
+    ),
 )
 
 
