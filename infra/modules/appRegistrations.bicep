@@ -157,14 +157,14 @@ output reproClientId string = reproApp.appId
 @description('Client ID of the fixed app registration (H1 corrected).')
 output fixedClientId string = fixedApp.appId
 
-@description('Audience for the repro app — Entra v2 tokens carry aud=clientId (GUID), not the identifier URI.')
-output reproAudience string = reproApp.appId
+@description('Audience for the repro app — the api:// identifier URI, used both for scope construction and JWT aud validation.')
+output reproAudience string = reproIdentifierUri
 
-@description('Audience for the fixed app — Entra v2 tokens carry aud=clientId (GUID), not the identifier URI.')
-output fixedAudience string = fixedApp.appId
+@description('Audience for the fixed app — the api:// identifier URI, used both for scope construction and JWT aud validation.')
+output fixedAudience string = fixedIdentifierUri
 
-@description('Application ID URI for repro app (for Bearer token validation).')
+@description('Application ID URI for repro app.')
 output reproIdentifierUri string = reproIdentifierUri
 
-@description('Application ID URI for fixed app (for Bearer token validation).')
+@description('Application ID URI for fixed app.')
 output fixedIdentifierUri string = fixedIdentifierUri
