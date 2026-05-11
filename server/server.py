@@ -8,6 +8,7 @@ from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.routes import cors_middleware
 from mcp.shared.auth import ProtectedResourceMetadata
+from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from config import get_settings
@@ -93,6 +94,11 @@ app = mcp.http_app(
     json_response=True,
 )
 
+
+async def healthcheck(_request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
 # VS Code probes the root RFC 9728 endpoint before the path-scoped /mcp variant.
 app.router.routes.insert(
     0,
@@ -105,6 +111,8 @@ app.router.routes.insert(
         methods=["GET", "OPTIONS"],
     ),
 )
+app.router.routes.insert(0, Route("/health", endpoint=healthcheck, methods=["GET"]))
+app.router.routes.insert(0, Route("/", endpoint=healthcheck, methods=["GET"]))
 
 
 def main() -> None:

@@ -151,8 +151,9 @@ az bicep build --file infra/main.bicep
 - `.azure/<env>/.env` only needs `AZURE_ENV_NAME` set because `infra/main.parameters.json` already maps that value into the Bicep `environmentName` parameter.
 - FastMCP can own MCP auth end-to-end without App Service EasyAuth; removing `authsettingsV2` keeps `/.well-known/oauth-protected-resource` publicly reachable while `/mcp` still rejects anonymous calls.
 - Keep `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` in slot app settings until Naomi confirms it is irrelevant to PRM content.
-- `azd deploy` on this project must set `AZD_DEPLOY_SERVER_SLOT_NAME=production` (or `staging`) because the App Service has slots; deploying production with commit `6da543a` successfully rolled out Naomi's `server/server.py` PRM alias + dual-audience change, and smoke tests returned PRM `200` plus anonymous `POST /mcp` `401`.
-- Staging recovery for `cloud-helper-fastmcp-direct-staging` is a code-only deploy: `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy server -e mcp-auth-test-direct --no-prompt`. After deploy, `/.well-known/oauth-protected-resource/mcp` returned `200`, anonymous `POST /mcp` returned `401`, and the PRM metadata advertised the fixed audience `api://cloud-helper-mcp-fixed-mcp-auth-test-direct/mcp.access`.
+- `AZD_DEPLOY_SERVER_SLOT_NAME` can live in the AZD environment itself (`azd env set ...`) so `azd up`/`azd deploy` target the right slot without extra hooks or shell wrappers.
+- With direct-Entra FastMCP, Bicep can own app registrations, slot wiring, and tenant-local service-principal creation; the old pre/post-provision hook scripts are unnecessary once proxy-era logic is gone.
+- `azd up` can still time out even when App Service deploy succeeds if the app returns `404` on `/`; adding lightweight unauthenticated `/` and `/health` `200` probes makes AZD's runtime wait succeed while leaving PRM + `/mcp` auth behavior unchanged.
 
 ## 2026-05-11 — Direct-Entra Infrastructure Sprint Close
 

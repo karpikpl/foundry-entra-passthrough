@@ -1,11 +1,11 @@
 // infra/main.bicep — AZD orchestrator for cloud-helper-fastmcp
-// Updated: 2026-05-11 for direct-Entra pattern (no OAuthProxy client app)
+// Updated: 2026-05-11 for direct-Entra resource-server mode.
 //
 // Calls two modules:
-//   1. appRegistrations — creates the repro + fixed Entra resource-server app
-//      registrations via the Microsoft.Graph Bicep extension.
+//   1. appRegistrations — creates the repro + fixed Entra resource-server apps
+//      and their tenant-local service principals via the Microsoft.Graph extension.
 //   2. appService — creates the App Service with production (repro) and
-//      staging (fixed) slots configured for EasyAuth v2 + PRM.
+//      staging (fixed) slots wired to the matching app registrations.
 
 targetScope = 'resourceGroup'
 

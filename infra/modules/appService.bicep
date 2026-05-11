@@ -6,9 +6,8 @@
 //   production slot → cloud-helper-mcp-repro auth profile
 //   staging slot    → cloud-helper-mcp-fixed auth profile
 //
-// Sticky settings (CLIENT_ID, AUDIENCE, RESOURCE_HOST, TENANT_ID/AZURE_TENANT_ID,
-// WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES) ensure a slot swap never silently changes
-// which app registration each slot uses.
+// Sticky settings (CLIENT_ID, AUDIENCE, RESOURCE_HOST, TENANT_ID/AZURE_TENANT_ID)
+// ensure a slot swap never silently changes which app registration each slot uses.
 
 targetScope = 'resourceGroup'
 
@@ -40,15 +39,14 @@ param fixedAudience string
 param tags object = {}
 
 var stagingSlotName = 'staging'
-var reproScope = '${reproAudience}/mcp.access'
-var fixedScope = '${fixedAudience}/mcp.access'
+var planName = 'asp-${webAppName}'
 
 resource existingPlan 'Microsoft.Web/serverfarms@2022-09-01' existing = if (!empty(existingPlanName)) {
   name: existingPlanName
 }
 
 resource newPlan 'Microsoft.Web/serverfarms@2022-09-01' = if (empty(existingPlanName)) {
-  name: 'asp-cloud-helper-fastmcp'
+  name: planName
   location: location
   tags: tags
   kind: 'linux'
@@ -100,7 +98,6 @@ resource webAppSlotSettings 'Microsoft.Web/sites/config@2022-09-01' = {
       'RESOURCE_HOST'
       'TENANT_ID'
       'AZURE_TENANT_ID'
-      'WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES'
     ]
   }
 }
@@ -115,7 +112,6 @@ resource webAppStickyProd 'Microsoft.Web/sites/config@2022-09-01' = {
     RESOURCE_HOST: '${webAppName}.azurewebsites.net'
     TENANT_ID: tenantId
     AZURE_TENANT_ID: tenantId
-    WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES: reproScope
     PORT: '8000'
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     WEBSITES_PORT: '8000'
@@ -156,7 +152,6 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
     RESOURCE_HOST: '${webAppName}-staging.azurewebsites.net'
     TENANT_ID: tenantId
     AZURE_TENANT_ID: tenantId
-    WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES: fixedScope
     PORT: '8000'
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     WEBSITES_PORT: '8000'

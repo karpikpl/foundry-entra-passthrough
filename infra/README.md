@@ -9,9 +9,10 @@ This project uses **Azure Developer CLI (AZD)** + **Bicep** to provision:
 | Resource | Module |
 |---|---|
 | Two Entra app registrations (repro + fixed) | `infra/modules/appRegistrations.bicep` |
+| Two Entra service principals (repro + fixed) | `infra/modules/appRegistrations.bicep` |
 | App Service `cloud-helper-fastmcp` (Python 3.12) | `infra/modules/appService.bicep` |
 | Staging slot | `infra/modules/appService.bicep` |
-| App Service Plan (B1, reused or new) | `infra/modules/appService.bicep` |
+| App Service Plan (S1, reused or new) | `infra/modules/appService.bicep` |
 
 ### Slot assignment (LOCKED — Piotr directive 2026-05-09)
 
@@ -70,7 +71,7 @@ azd env set EXISTING_PLAN_NAME    <existing-plan-name>
 
 ## Direct-Entra parallel environment (recommended)
 
-Use a separate azd environment + resource group so the direct-Entra rollout does not touch the existing OAuthProxy deployment.
+Use a separate azd environment + resource group so the direct-Entra rollout stays isolated from any legacy deployment.
 
 ```bash
 azd env new mcp-auth-test-direct
@@ -84,6 +85,7 @@ azd env set EXISTING_PLAN_NAME ""
 
 What changes automatically in the new environment:
 - Entra app registrations are already parameterized by `environmentName`, so this env creates `cloud-helper-mcp-repro-mcp-auth-test-direct` and `cloud-helper-mcp-fixed-mcp-auth-test-direct`.
+- Bicep also creates the matching tenant-local service principals, so no post-provision hook is needed.
 - The web app name now comes from `WEB_APP_NAME`, so the direct-Entra deployment can use its own App Service hostname.
 - `azure.yaml` does not pin a single App Service resource name, so `azd deploy` follows the resource tagged for the selected environment.
 
@@ -95,7 +97,7 @@ Manual steps before `azd up`:
 Manual steps after `azd up`:
 - If your tenant requires it, grant/admin-consent the app registrations created for the new environment.
 - Verify the generated outputs with `azd env get-values`; `REPRO_CLIENT_ID`, `FIXED_CLIENT_ID`, `REPRO_AUDIENCE`, `FIXED_AUDIENCE`, and `WEB_APP_NAME` should all reflect the new environment.
-- No manual EasyAuth portal edits should be required; EasyAuth v2 is configured in Bicep.
+- If you want local helper files such as `client/.env`, generate them from `azd env get-values` on demand instead of relying on AZD hooks.
 
 ## Provision infrastructure (Bicep)
 

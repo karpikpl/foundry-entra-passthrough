@@ -1,9 +1,10 @@
 // infra/modules/appRegistrations.bicep
-// Updated: 2026-05-11 for direct-Entra (no OAuthProxy client app)
+// Updated: 2026-05-11 for direct-Entra resource-server mode.
 //
 // Creates two Entra resource-server app registrations for the mcp-oauth
-// repro/fixed demo. Both expose the mcp.access delegated scope. The fixed app
-// additionally pre-authorizes VS Code so it can request the scope directly.
+// repro/fixed demo. Both expose the mcp.access delegated scope and create the
+// corresponding service principals in-tenant. The fixed app additionally
+// pre-authorizes VS Code so it can request the scope directly.
 
 extension microsoftGraphV1
 
@@ -122,6 +123,16 @@ resource fixedApp 'Microsoft.Graph/applications@v1.0' = {
   identifierUris: [
     fixedIdentifierUri
   ]
+}
+
+resource reproServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
+  appId: reproApp.appId
+  accountEnabled: true
+}
+
+resource fixedServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
+  appId: fixedApp.appId
+  accountEnabled: true
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
