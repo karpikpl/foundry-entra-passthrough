@@ -76,3 +76,14 @@
 - Recommended using slot URLs as two live auth profiles rather than relying on slot swap as the main broken/fixed switch.
 - Preferred mapping: staging slot = repro, production slot = fixed.
 - Marked `CLIENT_ID`, `AUDIENCE`, and `RESOURCE_HOST` as sticky slot settings.
+
+### 2026-05-10T01:11:03Z — FastMCP Native Entra/OIDC Research
+
+**Decision:** `.squad/decisions/inbox/holden-fastmcp-entra-native-auth.md`
+
+- **`TokenVerifier` is the official integration point.** FastMCP (`mcp/server/auth/provider.py`) defines `TokenVerifier` as a `Protocol` with one method: `async def verify_token(token: str) -> AccessToken | None`. Pass a custom implementation to `FastMCP(token_verifier=...)`. This is the designed hook for external OIDC providers like Entra.
+- **`resource_server_url` + `issuer_url` natively serve the PRM.** When both are set, FastMCP auto-registers `GET /.well-known/oauth-protected-resource/mcp` with `resource` = `resource_server_url` and `authorization_servers` = `[issuer_url]` (Entra). Our custom `well_known.py` PRM route is now redundant.
+- **RS-mode = `token_verifier` only, no `auth_server_provider`.** FastMCP registers no `/authorize`, `/token`, or AS metadata routes. Just PRM + bearer extraction + scope enforcement.
+- **FastMCP does NOT validate JWTs.** All JWKS fetching, RS256 validation, `kid` rotation, `scp`/`roles` parsing stays in `auth.py` — zero changes there. The `EntraTokenVerifier` adapter is ~15 lines.
+- **`get_access_token()` from `auth_context`.** FastMCP stores the resolved `AccessToken` in a contextvar via `AuthContextMiddleware`. Tools call `get_access_token()` instead of our custom `get_token_claims()`. AccessToken has `client_id`, `scopes`, `token`, `expires_at` — no raw claims. If `sub` is needed, extend `AccessToken` with a `subject` field.
+- **`BearerTokenAuthMiddleware` and `build_well_known_routes()` are now replaceable.** Refactor collapses `server.py` from ~235 to ~60 lines. `well_known.py` can be deleted. `auth.py` and `config.py` untouched. Risk: low.

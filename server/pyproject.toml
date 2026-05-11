@@ -4,10 +4,9 @@ version = "0.1.0"
 description = "FastMCP RS-mode server for MCP OAuth repro/fix"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp[cli]>=1.0",
-    "PyJWT>=2.8",
-    "cryptography>=42.0",
-    "httpx>=0.27",
+    # fastmcp wraps the official mcp SDK and adds OAuthProxy, JWTVerifier,
+    # and a full OAuth 2.1 proxy server — all we need in one package.
+    "fastmcp>=3.2",
     "pydantic-settings>=2.0",
     "uvicorn[standard]>=0.29",
 ]

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TENANT_ID", "AZURE_TENANT_ID")
     )
     client_id: str = Field(alias="CLIENT_ID")
+    client_secret: str = Field(alias="CLIENT_SECRET")
     audience: str | None = Field(default=None, alias="AUDIENCE")
     resource_host: str = Field(alias="RESOURCE_HOST")
     port: int = Field(default=8000, alias="PORT")

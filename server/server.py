@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import uvicorn
+from fastmcp import Context, FastMCP
+from fastmcp.server.auth import OAuthProxy
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.provider import AccessToken, TokenVerifier
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import AnyHttpUrl
 
-from auth import AuthError, EntraTokenValidator, extract_token_scopes
 from config import get_settings
 
 logging.basicConfig(
@@ -21,51 +18,87 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class EntraTokenVerifier:
-    """Adapts EntraTokenValidator to FastMCP's TokenVerifier protocol."""
-
-    def __init__(self, validator: EntraTokenValidator) -> None:
-        self._validator = validator
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        try:
-            claims = await asyncio.to_thread(self._validator.validate_token, token)
-        except AuthError as exc:
-            logger.warning("Token validation failed: %s", exc.error_description)
-            return None
-
-        scopes = extract_token_scopes(claims)
-        subject = claims.get("sub", claims.get("appid", "unknown"))
-        logger.info("Validated bearer token for sub=%s", subject)
-        return AccessToken(
-            token=token,
-            client_id=subject,
-            scopes=list(scopes),
-            expires_at=claims.get("exp"),
-        )
-
-
 def _create_mcp() -> FastMCP:
     settings = get_settings()
-    validator = EntraTokenValidator(
-        tenant_id=settings.tenant_id,
-        client_id=settings.client_id,
+
+    # WHY OAuthProxy instead of RS-mode (TokenVerifier + AuthSettings)?
+    #
+    # In RS-mode, the /.well-known/oauth-protected-resource response advertises
+    # Entra's URL (login.microsoftonline.com/<tenant>/v2.0) as the auth server.
+    #
+    # VS Code's microsoft-authentication extension registers itself as the handler
+    # for any auth server matching "https://login.microsoftonline.com/*".  When it
+    # handles MCP auth it bundles Microsoft Graph (resource 00000003) scopes so it
+    # can populate the Accounts panel with the user's name and profile picture.
+    #
+    # Entra blocks this with AADSTS65002: VS Code (app aebc6443, a Microsoft
+    # first-party app) is not pre-authorised to request Graph (also a Microsoft
+    # first-party resource) in any *third-party* tenant.  This fails for every
+    # account type (member or guest) in any custom Entra tenant — there is no
+    # per-tenant workaround.
+    #
+    # OAuthProxy fixes this by presenting OUR OWN server URL as the auth server.
+    # VS Code doesn't match it against login.microsoftonline.com/* so it falls back
+    # to a plain OAuth 2.1 PKCE flow that requests ONLY the scopes we specify.
+    # No Graph request → no AADSTS65002.
+    #
+    # The proxy:
+    #   1. Exposes /auth/register, /auth/authorize, /auth/token on our domain.
+    #   2. Accepts Dynamic Client Registration (DCR) from any MCP client.
+    #   3. Redirects the user to Entra for real authentication.
+    #   4. After Entra callback, validates the Entra JWT (via JWTVerifier below).
+    #   5. Issues its own short-lived FastMCP JWT to the MCP client.
+    #   6. MCP clients send that FastMCP JWT as the Bearer token to /mcp.
+    #
+    # PREREQUISITE: register the proxy's fixed callback URI in the Entra app:
+    #   {RESOURCE_HOST}/auth/callback
+    # e.g. https://cloud-helper-fastmcp-staging.azurewebsites.net/auth/callback
+
+    # JWTVerifier validates the upstream Entra token that arrives at the proxy
+    # callback, before the proxy issues its own FastMCP JWT to the client.
+    entra_verifier = JWTVerifier(
+        jwks_uri=settings.jwks_url,
+        issuer=settings.issuer,
         audience=settings.resolved_audience,
+        required_scopes=["mcp.access"],
     )
-    return FastMCP(
-        "Hello World RS-Mode MCP",
-        auth=AuthSettings(
-            issuer_url=AnyHttpUrl(settings.issuer),
-            resource_server_url=AnyHttpUrl(f"{settings.resource_url}/mcp"),
-            required_scopes=["mcp.access"],
+
+    auth = OAuthProxy(
+        # Entra's standard OAuth 2.0 v2.0 endpoints for our tenant.
+        upstream_authorization_endpoint=(
+            f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/authorize"
         ),
-        token_verifier=EntraTokenVerifier(validator),
+        upstream_token_endpoint=(
+            f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/token"
+        ),
+        # Pre-registered Entra app credentials (client secret required because
+        # Entra doesn't support Dynamic Client Registration).
+        upstream_client_id=settings.client_id,
+        upstream_client_secret=settings.client_secret,
+        # Entra v2.0 requires the full scope URI (api://<app-id>/<scope>).
+        # We pass it here so the proxy includes it when redirecting to Entra,
+        # regardless of what abbreviated scope the MCP client requested.
+        extra_authorize_params={
+            "scope": f"{settings.resolved_audience}/mcp.access offline_access openid"
+        },
+        token_verifier=entra_verifier,
+        # base_url tells the proxy what URL to advertise for its own auth
+        # endpoints (/auth/authorize, /auth/token, /auth/register).
+        # Derived from RESOURCE_HOST env var — no hardcoded URLs.
+        base_url=settings.resource_url,
+    )
+
+    return FastMCP(
+        "Cloud Helper MCP",
+        auth=auth,
         stateless_http=True,
         json_response=True,
-        # Disable DNS-rebinding protection — tokens are validated by Entra.
-        # The default localhost-only allowed_hosts would reject every request
-        # when deployed on Azure App Service.
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        # Disable DNS-rebinding protection: Azure App Service sends requests
+        # with the app hostname in Host, not localhost, so the default
+        # localhost-only check would reject every request.
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        ),
     )
 
 
@@ -74,17 +107,21 @@ mcp = _create_mcp()
 
 @mcp.tool(description="Return a hello world message for authenticated callers.")
 def hello(name: str, ctx: Context) -> str:
+    # get_access_token() returns the FastMCP JWT claims for the current request.
+    # client_id holds the subject extracted from the upstream Entra token.
     access_token = get_access_token()
     subject = access_token.client_id if access_token else "<unknown>"
     ctx.info(f"hello invoked by {subject}")
-    return f"Hello, {name}! You are authenticated."
+    return f"Hello, {name}! You are authenticated as {subject}."
 
 
 # streamable_http_app() wires up:
-#   - /.well-known/oauth-protected-resource/mcp  (RFC 9728, with scopes_supported)
-#   - AuthenticationMiddleware + BearerAuthBackend + AuthContextMiddleware
-#   - RequireAuthMiddleware protecting /mcp
-#   - session_manager lifespan
+#   - /.well-known/oauth-protected-resource   (RFC 9728 — points to our proxy)
+#   - /auth/register   (DCR — proxy accepts and stores dynamic clients)
+#   - /auth/authorize  (proxy redirects to Entra, stores pending state)
+#   - /auth/callback   (Entra redirects here; proxy validates, issues FastMCP JWT)
+#   - /auth/token      (client exchanges code for FastMCP JWT)
+#   - /mcp             (protected by RequireAuthMiddleware — FastMCP JWT required)
 app = mcp.streamable_http_app()
 
 
