@@ -7,7 +7,6 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.auth import OAuthProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 
 from config import get_settings
 
@@ -110,18 +109,12 @@ def hello(name: str, ctx: Context) -> str:
 # http_app() replaces streamable_http_app() in fastmcp 3.x.
 # stateless_http and json_response moved here from the FastMCP() constructor.
 #
-# TransportSecurityMiddleware(settings) is passed as middleware because fastmcp 3.x
-# no longer accepts transport_security in the constructor. Disabling DNS-rebinding
-# protection is still required: Azure App Service sends requests with the app
-# hostname in Host (not localhost), which the default check would reject.
+# DNS-rebinding protection: fastmcp 3.x no longer exposes transport_security.
+# The underlying mcp SDK's check is not wired in by default here.
+# Azure App Service enforces TLS + hostname routing, so no custom middleware needed.
 app = mcp.http_app(
     stateless_http=True,
     json_response=True,
-    middleware=[
-        TransportSecurityMiddleware(
-            TransportSecuritySettings(enable_dns_rebinding_protection=False)
-        )
-    ],
 )
 
 
