@@ -122,6 +122,10 @@ az bicep build --file infra/main.bicep
 - Direct-Entra Bicep support works with `Microsoft.Graph/applications@v1.0` plus `api.preAuthorizedApplications`; `delegatedPermissionIds` must use the exposed scope GUID, not the scope value string.
 - App Service EasyAuth v2 for MCP should use `unauthenticatedClientAction: 'Return401'`, the tenant-specific `https://login.microsoftonline.com/{tenantId}/v2.0` issuer, token store enabled, and slot-specific `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`.
 - Removing the proxy app registration also means removing `PROXY_CLIENT_*` assumptions from AZD hooks; postprovision only needs the MCP server app IDs/audiences and can ensure their service principals exist.
+- Parallel AZD environments need a per-environment `WEB_APP_NAME`; Entra app registrations already suffix off `environmentName`, but App Service names are globally unique and must not stay hardcoded.
+- For the direct-Entra clone of `mcp-auth-test`, `mcp-auth-test-direct` + `rg-mcp-auth-test-direct` + `cloud-helper-fastmcp-direct` cleanly separate the new rollout from the existing OAuthProxy-backed deployment.
+- Entra app registration `displayName` values must always include `environmentName`; do not special-case `production`, or parallel AZD environments can drift back into shared names in the same tenant.
+- `.azure/<env>/.env` only needs `AZURE_ENV_NAME` set because `infra/main.parameters.json` already maps that value into the Bicep `environmentName` parameter.
 
 ## 2026-05-11 — Direct-Entra Infrastructure Sprint Close
 

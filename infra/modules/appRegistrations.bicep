@@ -7,7 +7,7 @@
 
 extension microsoftGraphV1
 
-@description('Environment name — disambiguates multiple AZD environments in the same tenant.')
+@description('Environment name — required in every app registration name so parallel AZD environments stay unique in the same tenant.')
 param environmentName string
 
 var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
@@ -16,8 +16,9 @@ var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
 var reproScopeId = guid('cloud-helper-mcp-repro', environmentName, 'mcp.access')
 var fixedScopeId = guid('cloud-helper-mcp-fixed', environmentName, 'mcp.access')
 
-// Friendly display suffix for multi-env tenants (omitted when env = 'production')
-var envSuffix = environmentName == 'production' ? '' : '-${environmentName}'
+// Always suffix app registration names with the AZD environment name so
+// parallel environments never reuse the same Entra display names.
+var envSuffix = '-${environmentName}'
 
 var reproName = 'cloud-helper-mcp-repro${envSuffix}'
 var fixedName = 'cloud-helper-mcp-fixed${envSuffix}'
