@@ -78,14 +78,16 @@ def _create_mcp() -> FastMCP:
         # We pass it here so the proxy includes it when redirecting to Entra,
         # regardless of what abbreviated scope the MCP client requested.
         #
-        # prompt=select_account: prevents WAM (Windows Auth Manager) from silently
-        # reusing an existing SSO session that hasn't yet consented to this app.
-        # Silent SSO bypasses the consent UI → Entra returns AADSTS65001 at the
-        # token exchange step. Forcing account selection ensures the interactive
-        # flow runs, which triggers the consent prompt on first use.
+        # prompt=consent: forces Entra to show the consent screen so the user
+        # explicitly grants the proxy app access to mcp.access. Without this,
+        # prompt=select_account skips consent UI → token exchange fails with
+        # AADSTS65001. Guest/external (#EXT#) users are not covered by
+        # AllPrincipals admin consent grants and require per-user interactive
+        # consent. Once the user has consented, this can be changed back to
+        # select_account.
         extra_authorize_params={
             "scope": f"{settings.resolved_audience}/mcp.access offline_access openid",
-            "prompt": "select_account",
+            "prompt": "consent",
         },
         token_verifier=entra_verifier,
         # base_url tells the proxy what URL to advertise for its own auth
