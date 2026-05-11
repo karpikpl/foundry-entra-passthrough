@@ -14,8 +14,8 @@ services:
     project: ./server
     language: python
     host: appservice
-    # AZD discovers the App Service by the azd-service-name tag set in Bicep
-    resourceName: cloud-helper-fastmcp
+    # AZD discovers the App Service by the azd-service-name tag set in Bicep.
+    # Keep resourceName unset so each azd environment can deploy its own web app.
 
 infra:
   provider: bicep

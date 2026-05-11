@@ -149,6 +149,10 @@ az bicep build --file infra/main.bicep
 - For the direct-Entra clone of `mcp-auth-test`, `mcp-auth-test-direct` + `rg-mcp-auth-test-direct` + `cloud-helper-fastmcp-direct` cleanly separate the new rollout from the existing OAuthProxy-backed deployment.
 - Entra app registration `displayName` values must always include `environmentName`; do not special-case `production`, or parallel AZD environments can drift back into shared names in the same tenant.
 - `.azure/<env>/.env` only needs `AZURE_ENV_NAME` set because `infra/main.parameters.json` already maps that value into the Bicep `environmentName` parameter.
+- FastMCP can own MCP auth end-to-end without App Service EasyAuth; removing `authsettingsV2` keeps `/.well-known/oauth-protected-resource` publicly reachable while `/mcp` still rejects anonymous calls.
+- Keep `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` in slot app settings until Naomi confirms it is irrelevant to PRM content.
+- `azd deploy` on this project must set `AZD_DEPLOY_SERVER_SLOT_NAME=production` (or `staging`) because the App Service has slots; deploying production with commit `6da543a` successfully rolled out Naomi's `server/server.py` PRM alias + dual-audience change, and smoke tests returned PRM `200` plus anonymous `POST /mcp` `401`.
+- Staging recovery for `cloud-helper-fastmcp-direct-staging` is a code-only deploy: `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy server -e mcp-auth-test-direct --no-prompt`. After deploy, `/.well-known/oauth-protected-resource/mcp` returned `200`, anonymous `POST /mcp` returned `401`, and the PRM metadata advertised the fixed audience `api://cloud-helper-mcp-fixed-mcp-auth-test-direct/mcp.access`.
 
 ## 2026-05-11 — Direct-Entra Infrastructure Sprint Close
 
@@ -199,3 +203,13 @@ None identified. All Bicep changes validated and ready for next AZD provision.
 ### Next
 
 Monitor slot deployments during AZD runs. Verify EasyAuth token validation + PRM metadata in staging.
+
+### Round 11: `azd up` deployment result for `mcp-auth-test-direct` (2026-05-11)
+
+- Ran `azd env select mcp-auth-test-direct` followed by `azd up --no-prompt` from repo root.
+- `azd provision` succeeded far enough to create the S1 App Service plan, production site `cloud-helper-fastmcp-direct`, and the `staging` slot, plus both environment-scoped Entra app registrations.
+- `azd up` then failed during `azd deploy` with: `deployment slots detected but no target specified. Set AZD_DEPLOY_SERVER_SLOT_NAME to one of: [production, staging] ('production' = main app)`.
+- `azd show` still reported the production URL as `https://cloud-helper-fastmcp-direct.azurewebsites.net/` and `az webapp show` confirmed the site is running, but smoke tests were unhealthy because the app deploy step never completed.
+- Smoke test results after the failed deploy: production `/.well-known/oauth-protected-resource` returned HTTP 503 Application Error; production `/.well-known/oauth-authorization-server`, production `/health`, and the same staging endpoints timed out.
+- EasyAuth configuration exists on both slots (`az webapp auth show`), so no extra portal-only EasyAuth knob was identified in this pass; the blocking issue is the missing AZD slot target for deploy.
+- Existing recommended VS Code MCP entry points at the fixed slot URL: `https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp`.

@@ -38,7 +38,7 @@ az version
 The user (or service principal) running `azd provision` must have:
 
 - **Application.ReadWrite.OwnedBy** on Microsoft Graph (to create and own app registrations)
-- **Contributor** on the resource group `rg-cloud-helper-mcp`
+- **Contributor** on the target resource group for the selected azd environment
 
 If you get a `Application.ReadWrite.All` permission error during provisioning, your admin needs to grant your account the **Application Developer** or **Application Administrator** role in Entra.
 
@@ -50,20 +50,52 @@ If you get a `Application.ReadWrite.All` permission error during provisioning, y
 # 1. Authenticate with AZD (opens browser)
 azd auth login
 
-# 2. Create a new AZD environment
-azd env new cloud-helper-fastmcp
+# 2. Create/select an AZD environment
+azd env new <env-name>
 
-# 3. Set the target Azure region (tenant and subscription are resolved from your auth session)
-azd env set AZURE_LOCATION       eastus
+# 3. Set the target Azure subscription + region
+azd env set AZURE_SUBSCRIPTION_ID <subscription-id>
+azd env set AZURE_LOCATION        eastus
+azd env set AZURE_RESOURCE_GROUP  <new-resource-group>
 
-# 4. (OPTIONAL) Reuse the existing App Service Plan from cloud-helper-mcp
-#    If omitted, a new B1 plan is created.
-azd env set EXISTING_PLAN_NAME   <existing-plan-name>
-#    Find the plan name:
-#    az appservice plan list --resource-group rg-cloud-helper-mcp --query "[].name" -o tsv
+# 4. Pick a globally unique App Service name for this environment
+azd env set WEB_APP_NAME          <new-web-app-name>
+
+# 5. (OPTIONAL) Reuse an existing App Service Plan in the target region.
+#    If omitted, a new S1 plan is created.
+azd env set EXISTING_PLAN_NAME    <existing-plan-name>
 ```
 
 ---
+
+## Direct-Entra parallel environment (recommended)
+
+Use a separate azd environment + resource group so the direct-Entra rollout does not touch the existing OAuthProxy deployment.
+
+```bash
+azd env new mcp-auth-test-direct
+azd env set AZURE_SUBSCRIPTION_ID 0721e282-2773-4021-af16-e00641ed5e36
+azd env set AZURE_LOCATION eastus
+azd env set AZURE_RESOURCE_GROUP rg-mcp-auth-test-direct
+azd env set AZURE_TENANT_ID c29d6c2b-f765-41b3-b2a2-971a14239dfd
+azd env set WEB_APP_NAME cloud-helper-fastmcp-direct
+azd env set EXISTING_PLAN_NAME ""
+```
+
+What changes automatically in the new environment:
+- Entra app registrations are already parameterized by `environmentName`, so this env creates `cloud-helper-mcp-repro-mcp-auth-test-direct` and `cloud-helper-mcp-fixed-mcp-auth-test-direct`.
+- The web app name now comes from `WEB_APP_NAME`, so the direct-Entra deployment can use its own App Service hostname.
+- `azure.yaml` does not pin a single App Service resource name, so `azd deploy` follows the resource tagged for the selected environment.
+
+Manual steps before `azd up`:
+- Confirm the chosen `WEB_APP_NAME` is globally unique.
+- Make sure your Azure login is pointed at subscription `0721e282-2773-4021-af16-e00641ed5e36`.
+- Do **not** put any client secrets in the azd env; this deployment path is direct-Entra and should stay secret-free.
+
+Manual steps after `azd up`:
+- If your tenant requires it, grant/admin-consent the app registrations created for the new environment.
+- Verify the generated outputs with `azd env get-values`; `REPRO_CLIENT_ID`, `FIXED_CLIENT_ID`, `REPRO_AUDIENCE`, `FIXED_AUDIENCE`, and `WEB_APP_NAME` should all reflect the new environment.
+- No manual EasyAuth portal edits should be required; EasyAuth v2 is configured in Bicep.
 
 ## Provision infrastructure (Bicep)
 
@@ -83,7 +115,8 @@ azd env get-values
 ## Deploy app code
 
 ```bash
-# Deploy the FastMCP Python server to the App Service
+# Select the target environment, then deploy the FastMCP Python server
+azd env select <env-name>
 azd deploy
 ```
 
@@ -96,9 +129,10 @@ AZD discovers the correct App Service via the `azd-service-name: server` tag set
 ```bash
 # Swap production ↔ staging (deploys fixed code to production, sends repro code to staging)
 # Auth profiles stay with their slots (sticky settings).
+eval "$(azd env get-values | sed 's/^/export /')"
 az webapp deployment slot swap \
-  --name cloud-helper-fastmcp \
-  --resource-group rg-cloud-helper-mcp \
+  --name "$WEB_APP_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
   --slot staging \
   --target-slot production
 ```
@@ -109,32 +143,40 @@ az webapp deployment slot swap \
 
 ## Optional: Post-provision identifierUris fix
 
-The MS Graph Bicep extension cannot set `identifierUris` to `api://{appId}` in the same resource block (self-referential). Bicep uses `api://cloud-helper-mcp-repro` and `api://cloud-helper-mcp-fixed` instead (valid and unique).
+The MS Graph Bicep extension cannot set `identifierUris` to `api://{appId}` in the same resource block (self-referential). Bicep therefore uses environment-specific display-name URIs such as `api://cloud-helper-mcp-repro-<env>` and `api://cloud-helper-mcp-fixed-<env>` instead.
 
 If you need the canonical `api://{appId}` format, run after provisioning:
 
 ```bash
 # Get app IDs from AZD env
-REPRO_ID=$(azd env get-values | grep REPRO_CLIENT_ID | cut -d= -f2 | tr -d '"')
-FIXED_ID=$(azd env get-values | grep FIXED_CLIENT_ID | cut -d= -f2 | tr -d '"')
+eval "$(azd env get-values | sed 's/^/export /')"
+REPRO_ID="$REPRO_CLIENT_ID"
+FIXED_ID="$FIXED_CLIENT_ID"
 
 az ad app update --id "$REPRO_ID" --identifier-uris "api://${REPRO_ID}"
 az ad app update --id "$FIXED_ID" --identifier-uris "api://${FIXED_ID}"
 
 # Then update the AUDIENCE sticky settings on both slots
 az webapp config appsettings set \
-  --name cloud-helper-fastmcp \
-  --resource-group rg-cloud-helper-mcp \
+  --name "$WEB_APP_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
   --slot-settings "AUDIENCE=api://${REPRO_ID}/mcp.access"
 
 az webapp config appsettings set \
-  --name cloud-helper-fastmcp \
-  --resource-group rg-cloud-helper-mcp \
+  --name "$WEB_APP_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
   --slot staging \
   --slot-settings "AUDIENCE=api://${FIXED_ID}/mcp.access"
 ```
 
 ---
+
+## Full direct-Entra deploy flow
+
+```bash
+azd env select mcp-auth-test-direct
+azd up
+```
 
 ## Teardown
 

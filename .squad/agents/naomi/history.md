@@ -111,3 +111,11 @@ Subcommands: `repro` (prod slot, bug), `fixed` (staging slot, remedy)
 ✅ Code quality improved, maintainability increased  
 
 **Next:** Live VS Code MCP flow validation with DevTools tracing to confirm resource-scoped token path and identity claims.
+
+## Learnings
+
+### 2026-05-11 — EasyAuth removal verification
+
+- FastMCP 3.2.4 only exposed the path-scoped RFC 9728 endpoint at `/.well-known/oauth-protected-resource/mcp`; VS Code compatibility needs a root `/.well-known/oauth-protected-resource` alias that returns the same JSON without auth.
+- `RemoteAuthProvider` + FastMCP's `RequireAuthMiddleware` already protect `POST /mcp` directly. Missing or invalid bearer tokens return `401` with a `WWW-Authenticate: Bearer ... resource_metadata=".../.well-known/oauth-protected-resource/mcp"` header that points clients at Entra-backed PRM metadata.
+- App Service EasyAuth is not needed in `server.py`. The backend-side auth fix was to accept both Entra audience shapes for JWT validation: the app GUID (`aud`) and the `api://...` identifier URI clients request scopes against.

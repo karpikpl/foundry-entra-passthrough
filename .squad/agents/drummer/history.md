@@ -9,6 +9,12 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-05-11T14:47:57.864-04:00 — FastMCP-native auth smoke results
+
+- A healthy FastMCP-native slot advertises RFC 9728 metadata at `/.well-known/oauth-protected-resource/mcp` and challenges anonymous `POST /mcp` with `401` plus `WWW-Authenticate: Bearer ... resource_metadata=...`; invalid bearer strings are rejected the same way.
+- Slot health is now part of auth QA: if the slot is down, both PRM discovery and `/mcp` auth checks collapse into `503 Application Error`, which is an availability failure, not an OAuth signal.
+- `client/test_client.py` is meant to be run with `uv run`, not raw `python3`; in headless QA it can only be taken to the point where it prints the Entra authorize URL and starts the localhost callback listener, because completing the flow still requires an interactive browser sign-in.
+
 ### 2026-05-08T17:43:37Z — OAuth PKCE test suite written
 
 **12 test cases written** in `tests/oauth-flow-test-cases.md`.

@@ -18,11 +18,11 @@ param location string = resourceGroup().location
 @description('Name of an existing App Service Plan to reuse. Leave empty to create a new S1 plan.')
 param existingPlanName string = ''
 
+@description('App Service name to deploy. Set per environment so parallel azd deployments do not collide.')
+param webAppName string = 'cloud-helper-fastmcp'
+
 // ── Tenant context derived from the current subscription ─────────────────────
 var tenantId = subscription().tenantId
-
-// ── Shared App Service name — single source of truth ────────────────────────
-var webAppName = 'cloud-helper-fastmcp'
 
 // ── Tags applied to all ARM resources ────────────────────────────────────────
 var tags = {
