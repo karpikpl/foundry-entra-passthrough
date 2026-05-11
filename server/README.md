@@ -13,7 +13,7 @@ cd server && uv sync
 
 ## Configure
 
-Copy `.env.example` to `.env` and fill in the Entra tenant, app/client ID, audience, and public host name. `CLIENT_SECRET` is still present in the config model for compatibility, but direct-Entra RS-mode does not use it.
+Copy `.env.example` to `.env` and fill in the Entra tenant, app/client ID, audience, and public host name. Set `RESOURCE_APP_ID` when Entra emits the app GUID in the `aud` claim instead of the identifier URI.
 
 ## Run
 

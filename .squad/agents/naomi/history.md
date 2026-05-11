@@ -119,3 +119,10 @@ Subcommands: `repro` (prod slot, bug), `fixed` (staging slot, remedy)
 - FastMCP 3.2.4 only exposed the path-scoped RFC 9728 endpoint at `/.well-known/oauth-protected-resource/mcp`; VS Code compatibility needs a root `/.well-known/oauth-protected-resource` alias that returns the same JSON without auth.
 - `RemoteAuthProvider` + FastMCP's `RequireAuthMiddleware` already protect `POST /mcp` directly. Missing or invalid bearer tokens return `401` with a `WWW-Authenticate: Bearer ... resource_metadata=".../.well-known/oauth-protected-resource/mcp"` header that points clients at Entra-backed PRM metadata.
 - App Service EasyAuth is not needed in `server.py`. The backend-side auth fix was to accept both Entra audience shapes for JWT validation: the app GUID (`aud`) and the `api://...` identifier URI clients request scopes against.
+
+### 2026-05-11 — Cleanup pass after direct-Entra refactor
+
+- The legacy `server/auth.py` module was fully dead code after the FastMCP native `JWTVerifier` migration, so removing it is the cleanest way to avoid drift and misleading future edits.
+- `server/config.py` no longer needs `CLIENT_SECRET`; the active runtime inputs are tenant, client/resource identifiers, host, and optional `RESOURCE_APP_ID` for GUID-form `aud` validation.
+- For the QA client, explicitly discovering PRM first and then reconnecting with `BearerAuth` makes failures much easier to localize: metadata discovery vs Entra sign-in/token issuance vs authenticated MCP calls.
+- `uv export --no-hashes --no-dev --no-editable -o requirements.txt` currently emits a leading `.` entry for the packaged server project; that line is expected in the pip fallback file and is not an accidental dependency bump.
