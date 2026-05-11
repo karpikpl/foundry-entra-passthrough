@@ -670,3 +670,86 @@ In the Foundry portal: Build → Tools → Custom → MCP → OAuth Identity Pas
 3. Do **app registrations in Bicep** rather than bash/az CLI (`scripts/provision-two-app-regs.sh` to be replaced or supplemented with Bicep + `azd provision`)
 **Why:** User preference — captured for team memory and Amos/Naomi action
 ---
+
+## 2026-05-11T13:01:36Z: Direct-Entra Pattern — Investigation & Implementation Plan
+**By:** Holden (Lead / Auth Architect)  
+**Branch:** `investigate/direct-entra-pattern`  
+**Status:** PLAN READY — awaiting implementation
+
+**Summary:** VS Code's MCP OAuth strips `resource` parameter; if VS Code client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) is in `preAuthorizedApplications` on the resource app registration, VS Code acquires tokens directly from Entra — eliminating the need for OAuthProxy.
+
+**Architectural target:** FastMCP with `AuthSettings` + `JWTVerifier` (native RS-mode, no proxy).
+
+**Changes required:**
+- **server/server.py** (~215→80 lines): Remove `EntraOAuthProxy`, `_decode_jwt_payload`, rewrite `_create_mcp()` with `AuthSettings`; simplify `hello` tool to show `client_id` + scopes (Option A)
+- **server/config.py**: Remove `client_secret` field
+- **infra/modules/appRegistrations.bicep**: Add `preAuthorizedApplications` block to `fixedApp`, remove `proxyApp` resource
+- **infra/modules/appService.bicep** & **infra/main.bicep**: Remove proxy client params
+- **Validation:** `bicep build infra/main.bicep` must exit 0
+
+**6-phase investigation:**
+1. Server code (local, no deploy)
+2. Bicep updates
+3. Deploy & validate PRM
+4. Python test client baseline
+5. VS Code live test (critical: scope MUST be `api://cloud-helper-mcp-fixed/mcp.access`, not Graph)
+6. Document outcome
+
+**Risks:** VS Code may still inject Graph scopes; Bicep may not support `preAuthorizedApplications`; `JWTVerifier` protocol compliance (mitigated by pre-deploy test).
+
+**Open questions:** 
+- Does `JWTVerifier.client_id` map to `azp` (VS Code) or `sub`/`oid` (user)?
+- What VS Code version supports resource stripping (Tyler Leonhardt fix)?
+- Should `reproApp` also get pre-auth, or keep it to reproduce AADSTS65002?
+
+**References:** vscode#254009, merill/mcp-entra-design, RFC 9728 §3, FastMCP `AuthSettings` + `JWTVerifier` docs.
+
+---
+
+## 2026-05-11T13:03:00Z: Direct Entra MCP Implementation Checklist
+**By:** Monica (Researcher)  
+**Source:** Synthesis of merill/mcp-entra-design documentation (docs 02, 06, 14, 15)
+
+**Summary:** "Direct Entra" pattern (Build Your Own MCP Server with EasyAuth + PRM) is the most flexible auth approach—secures MCP server with Entra ID via EasyAuth v2 + Protected Resource Metadata (RFC 9728), supporting delegated (user-interactive) and application (agent-only) flows.
+
+**Key insight:** NOT about proxies—Entra points directly to MCP server via app registration. VS Code uses OAuth 2.1 + PKCE. 401 response from server triggers PRM discovery, telling VS Code where/how to get token.
+
+**Implementation checklist (4 main parts):**
+
+**Part 1: Entra App Registration**
+- Create MCP server app registration with `sign-in-audience: AzureADMyOrg`
+- Add Application ID URI: `api://<APP_ID>`
+- Expose delegated scope: `user_impersonation` (for user-interactive)
+- Add app role: `MCP.Access` (for agents/service principals)
+- **CRITICAL:** Pre-authorize VS Code in TWO places:
+  1. App Registration > Expose an API > Authorized client applications: `aebc6443-996d-45c2-90f0-388ff96faa56`
+  2. EasyAuth > Allowed client applications: same ID
+- Create service principal: `az ad sp create --id <APP_ID>`
+
+**Part 2: Azure App Service EasyAuth v2 Configuration**
+- Enable auth: Azure AD, select MCP app registration
+- **CRITICAL (Pitfall #1):** Set runtime version to `~2` (v1 does NOT enforce auth properly)
+- **CRITICAL (Pitfall #2):** Unauthenticated request action = "Return 401" (MCP clients need 401 + `WWW-Authenticate` header, not login redirect)
+- Enable token store (caching/refresh)
+- Configure auth.json if using custom settings
+
+**Part 3: Enable Protected Resource Metadata (PRM)**
+- Set app setting: `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=api://<MCP-APP-ID>/user_impersonation`
+- Verify endpoint: `curl https://mcp-server/.well-known/oauth-protected-resource` (returns JSON with `authorization_servers: ["https://login.microsoftonline.com/<tid>/v2.0"]`)
+- Verify 401 header: `curl -i https://mcp-server/mcp` includes `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"`
+
+**Part 4: VS Code MCP Client Configuration**
+- Config stays identical: `{"servers": {"cloud-helper": {"type": "http", "url": "..."}}}`
+- MCP discovery flow handles auth automatically:
+  1. VS Code hits `/mcp/` → 401 + PRM URL
+  2. VS Code fetches PRM → gets `authorization_servers`
+  3. VS Code fetches Entra OIDC metadata → gets endpoints
+  4. VS Code PKCE flow scoped to API (NOT Graph)
+
+**Critical pitfalls:**
+- Pitfall #1: EasyAuth v1 does NOT enforce auth—must use `~2`
+- Pitfall #2: Redirect to login page breaks MCP clients—must return 401
+- Pitfall #3: App Service restart may take several minutes
+- Pitfall #4: VS Code client ID must be registered in TWO places (app reg + EasyAuth)
+
+---
