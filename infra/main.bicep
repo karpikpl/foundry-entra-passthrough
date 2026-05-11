@@ -63,7 +63,6 @@ module appSvc './modules/appService.bicep' = {
     existingPlanName: existingPlanName
     reproClientId: appRegs.outputs.reproClientId
     reproAudience: appRegs.outputs.reproAudience
-    fixedClientId: appRegs.outputs.fixedClientId
     fixedAudience: appRegs.outputs.fixedAudience
     proxyClientId: appRegs.outputs.proxyClientId
     // Passed through securely — Bicep sets it as a sticky CLIENT_SECRET app
