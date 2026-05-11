@@ -7,7 +7,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.auth import OAuthProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 
 from config import get_settings
 
@@ -91,14 +91,6 @@ def _create_mcp() -> FastMCP:
     return FastMCP(
         "Cloud Helper MCP",
         auth=auth,
-        stateless_http=True,
-        json_response=True,
-        # Disable DNS-rebinding protection: Azure App Service sends requests
-        # with the app hostname in Host, not localhost, so the default
-        # localhost-only check would reject every request.
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False
-        ),
     )
 
 
@@ -115,14 +107,22 @@ def hello(name: str, ctx: Context) -> str:
     return f"Hello, {name}! You are authenticated as {subject}."
 
 
-# streamable_http_app() wires up:
-#   - /.well-known/oauth-protected-resource   (RFC 9728 — points to our proxy)
-#   - /auth/register   (DCR — proxy accepts and stores dynamic clients)
-#   - /auth/authorize  (proxy redirects to Entra, stores pending state)
-#   - /auth/callback   (Entra redirects here; proxy validates, issues FastMCP JWT)
-#   - /auth/token      (client exchanges code for FastMCP JWT)
-#   - /mcp             (protected by RequireAuthMiddleware — FastMCP JWT required)
-app = mcp.streamable_http_app()
+# http_app() replaces streamable_http_app() in fastmcp 3.x.
+# stateless_http and json_response moved here from the FastMCP() constructor.
+#
+# TransportSecurityMiddleware(settings) is passed as middleware because fastmcp 3.x
+# no longer accepts transport_security in the constructor. Disabling DNS-rebinding
+# protection is still required: Azure App Service sends requests with the app
+# hostname in Host (not localhost), which the default check would reject.
+app = mcp.http_app(
+    stateless_http=True,
+    json_response=True,
+    middleware=[
+        TransportSecurityMiddleware(
+            TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        )
+    ],
+)
 
 
 def main() -> None:
