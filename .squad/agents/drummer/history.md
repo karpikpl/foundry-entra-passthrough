@@ -48,3 +48,65 @@
 4. Clients automatically use this metadata to route tokens through Entra
 
 **Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
+
+### 2026-05-11T13:07:59-04:00 — Direct-Entra QA acceptance pattern
+
+- Direct-Entra QA must prove **no Dynamic Client Registration** anywhere in the client flow; both VS Code and `client/test_client.py` need a pre-registered public client ID.
+- The one scope that matters for sign-off is `api://{SERVER_CLIENT_ID}/mcp.access`. If VS Code or the CLI requests anything else, the result is noise, not a valid pass/fail signal.
+- Pre-flight curl checks are necessary but insufficient. Real sign-off requires the live VS Code flow with DevTools open, confirming the sequence `401 -> PRM/metadata -> Entra /authorize -> Entra /token -> /mcp`.
+- The fastest failure triage split is: Entra error during `/authorize` or `/token` means app registration / scope / pre-auth problem; `401` only at `/mcp` means server-side audience or token validation problem.
+- QA evidence is strongest when both the MCP tool response and the CLI token dump show identity claims (`name`, `preferred_username`/`upn`, `oid`).
+
+## 2026-05-11 — Direct-Entra QA & Testing Sprint Close
+
+**Date:** 2026-05-11T13:07:59Z  
+**Session:** direct-entra-implementation  
+**Scribe:** Scribe Agent  
+**Status:** ✅ COMPLETE
+
+### Delivered
+
+1. **QA Acceptance Criteria**
+   - Documented 7 mandatory criteria for direct-Entra sign-off
+   - Documented 5 blocking failure conditions (AADSTS65002, AADSTS65001, AADSTS901002, audience mismatch, consent)
+   - Cross-referenced with Holden's AADSTS65002 diagnosis
+   - Mapped remediation paths (tenant admin consent vs. VS Code MCP fix)
+   - All criteria covered by team implementation ✅
+
+2. **Test Plan**
+   - Wrote client/test_plan_direct_entra.md with explicit flow validation
+   - Loopback PKCE on 127.0.0.1 (demonstrates H1 redirect issue + fix)
+   - Bearer token acquisition + scope validation
+   - MCP tool call with identity claims verification
+   - No Dynamic Client Registration, correct scope URI, no resource= parameter
+
+3. **Client Documentation**
+   - Updated client/README.md with RS-mode test flow instructions
+   - Refreshed client/.env.example with REPRO/FIXED environments
+   - Clarified test expectations: repro fails, fixed succeeds
+
+4. **AADSTS65002 Analysis**
+   - Incorporated Holden's diagnosis into decision log
+   - Documented VS Code MCP client limitations (Cause A: built-in Graph fallback)
+   - Documented tenant consent policy impact (Cause B: unrelated)
+   - Advised Python test client as immediate workaround for demo
+
+### Key Decision
+
+Critical sign-off test is **live VS Code flow with DevTools open**. Curl/CLI checks are pre-flight only.
+Test client intentionally binds to 127.0.0.1 to exercise both success and failure paths.
+
+### Files
+
+- client/test_plan_direct_entra.md (QA criteria + blocking conditions)
+- client/README.md (RS-mode instructions)
+- client/.env.example (environment template)
+
+### Blockers
+
+VS Code MCP client resource-scoped token discovery not yet implemented (external dependency).
+Tenant Graph consent policy may block general VS Code auth (external dependency).
+
+### Next
+
+Execute live VS Code MCP flow with DevTools tracing. Capture Entra trace, identity claims, success/failure.

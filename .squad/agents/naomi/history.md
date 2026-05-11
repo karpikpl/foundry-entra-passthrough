@@ -1,151 +1,113 @@
-# Project Context
+# Naomi — Backend Developer History (Summarized)
 
-- **Owner:** Piotr Karpala
-- **Project:** mcp-oauth — debugging and fixing an OAuth 2.0 authorization_code + PKCE flow on an MCP server (Azure Web App). After Entra login, the client never POSTs to /token — the token exchange hangs.
-- **Stack:** MCP server (Azure Web App `cloud-helper-mcp`), Microsoft Entra ID, Azure AI Foundry (`foundry-kvmorale`), VS Code MCP client, OAuth 2.0 PKCE
-- **Created:** 2026-05-08
+**Owner:** Naomi (Backend Dev)  
+**Project:** mcp-oauth — OAuth 2.0 / Entra integration on MCP server (Azure Web App)
 
-## Learnings
+---
 
-### 2026-05-09T04:22:42Z — UV migration: server/ and client/
+## Key Learnings
 
-- **Entry point:** `server.py` exposes a module-level `app = create_app()` and the `if __name__ == "__main__":` block. Refactored into a proper `main()` function so `[project.scripts]` can reference `server:main`. The uvicorn startup in `main()` reads `settings.port` (env-driven via `PORT`, default 8000).
-- **server/ UV project:** `pyproject.toml` with `name = "cloud-helper-fastmcp"`, requires Python ≥ 3.12, resolved to 44 packages in `uv.lock`. Dropped `fastapi` (not imported directly — Starlette is pulled via `mcp[cli]`) and `python-dotenv` (covered by `pydantic-settings`). Upgraded `cryptography` floor to ≥42.0, `uvicorn[standard]` floor to ≥0.29.
-- **client/ UV project:** `pyproject.toml` with `name = "mcp-oauth-test-client"`. Only external dep is `requests` — all other imports in `test_oauth_client.py` are stdlib. Resolved to 6 packages.
-- **Startup script:** `server/startup.sh` uses `uv run uvicorn server:app` and reads `${PORT:-8080}` — App Service injects `PORT` automatically. Set startup command to `bash startup.sh`.
-- **Makefile:** `Makefile` at repo root with `install`, `dev`, `run-uvx`, `client-install`, `client-run` targets.
-- **App Service deploy note:** `uvx --from ./server cloud-helper-fastmcp` works for zero-install runs if uv is on the App Service PATH (requires custom startup or base image with uv). `bash startup.sh` is the safer option for App Service.
-- **`requirements.txt` retention:** Both `server/` and `client/` keep their `requirements.txt` with a `DEPRECATED` notice at the top. Useful as a pip emergency fallback without uv.
+### 1. UV Migration & App Structure (2026-05-09)
 
-### 2026-05-08T22:48:54Z — Built replacement FastMCP RS-mode OAuth server
+Migrated `server/` and `client/` to uv-based projects with proper entry points:
+- `server/server.py` exposes module-level `app` for Starlette ASGI
+- `server/startup.sh` runs `uv run uvicorn server:app`
+- App Service `PORT` env var auto-configured by Azure
+- Both projects keep `requirements.txt` (deprecated, pip fallback)
 
-- Built a fresh `server/` implementation that uses **RS-mode OAuth**: root `/.well-known/oauth-protected-resource` points clients at Entra, and the MCP endpoint only accepts Bearer tokens instead of exposing `/authorize` or `/token`.
-- Implemented `EntraTokenValidator` with **PyJWT + cryptography**, a **1-hour JWKS cache**, and explicit validation for signature, issuer, audience, and expiry.
-- Mounted FastMCP under `/mcp` inside a Starlette app so authentication middleware runs first and `/.well-known/` discovery stays public at the root.
-- Passed validated claims through a request-scoped context variable so the hello tool can confirm authenticated execution and log the caller subject.
+### 2. OAuth Root Cause Analysis (2026-05-08)
 
+Cross-team findings confirmed two root causes for client hang:
+- **H1 (HIGH):** Redirect URI mismatch (`http://localhost` vs `http://127.0.0.1`) — RFC 8252 §8.3 treats these as distinct
+- **H2 (HIGH):** VS Code/Foundry don't use MCP server's `/token` endpoint — they expect Resource Server behavior (RFC 9728 PRM)
 
-### 2026-05-08T17:46:22Z — Cross-Agent Finding: Root cause analysis (from Holden)
+**Solution:** Switch from Authorization Server mode to Resource Server mode with direct Entra JWT validation.
 
-**H1 (HIGH): Redirect URI mismatch** — The Entra app registration lists `http://localhost` (any port). But Entra's redirect lands on `http://127.0.0.1:<port>/`. Per RFC 8252 §8.3, loopback redirects MUST use `http://127.0.0.1` or `http://[::1]` — NOT `http://localhost`. Entra's platform may not treat these as equivalent. If client listener is on `127.0.0.1` but Entra redirects to `localhost` (or vice versa), callback never arrives.
+### 3. RS-Mode Server Implementation (2026-05-08)
 
-**H2 (HIGH): SDK may not implement token exchange** — MCP specification defines server-side OAuth support, but client-side token exchange may not be in MCP client SDK. If the SDK relies on host application (VS Code / AI Foundry) to complete exchange, and host doesn't know the MCP server's `/token` endpoint, no POST ever happens.
+Built initial RS-mode server with:
+- `EntraTokenValidator` — PyJWT + cryptography, RS256 validation, 1-hour JWKS cache
+- `/.well-known/oauth-protected-resource` discovery endpoint
+- Bearer token middleware + request-scoped context variable
+- Mounted under `/mcp` in Starlette app (auth runs first, discovery stays public)
 
-**Action items for Naomi:**
-1. Inspect `/.well-known/oauth-authorization-server` response — what `redirect_uris` are advertised?
-2. Check `/authorize` endpoint — what `redirect_uri` does client send? Does server validate?
-3. Check CORS headers on `/token`
-4. Add request logging to `/token` endpoint
-5. Check if server has a `/callback` endpoint that proxies the OAuth flow
+### 4. Post-Provision Verification (2026-05-09)
 
-**See:** `.squad/decisions/inbox/holden-oauth-root-cause-analysis.md` for full hypothesis list and investigation work plan
+All infrastructure checks passed:
+- Web app `cloud-helper-fastmcp` running in `rg-mcp-auth-test`
+- Both prod (root) and staging slots with correct app registrations
+- Redirect URIs: prod has bug preserved (`http://localhost` only), staging has fix (`127.0.0.1` + `localhost`)
+- HTTP 200 health on both slots
 
-### 2026-05-08T17:46:22Z — Server code audit: OAuth token endpoint investigation
+### 5. Well-Known Routes — App Service Startup Fix (2026-05-09)
 
-- **No server source code in this repo.** The `cloud-helper-mcp` Azure Web App code is not committed here. All server-side conclusions are based on the customer's self-reported endpoint behavior and what can be inferred from the issue description. The server code must be obtained from the customer or the deployment to audit CORS, PKCE validation, and Entra proxy call logic.
-- **IP restriction on all endpoints.** The Azure Web App returns `403 Ip Forbidden` (with `x-ms-forbidden-ip`) for all requests from this machine. All direct curl probes failed. This means live endpoint probing requires either an Azure-internal IP or the IP allowlist being updated. Amos must investigate `az webapp show siteConfig.ipSecurityRestrictions`.
-- **H1 (redirect URI mismatch) is confirmed in the test client code.** `client/test_oauth_client.py` explicitly binds to `127.0.0.1` and constructs `redirect_uri = http://127.0.0.1:{port}/`. The Entra registration only lists `http://localhost` — not `http://127.0.0.1`. Per RFC 8252 §8.3 these are distinct. This is the most likely root cause for the test client failing.
-- **Server architecture: pass-through proxy.** The issue description's language ("our `/token` endpoint is never called by the client") confirms the server owns a `/token` endpoint that the client initiates. The server then likely proxies to Entra's `/token`. This is the expected MCP OAuth model. H2 is false for the test client (which does implement Phase 3), but unconfirmed for AI Foundry and VS Code native clients.
-- **CORS on `/token` is unverifiable from this machine** due to IP restriction. This remains an open question specifically for the AI Foundry browser-based client scenario (H6). Amos must check `az webapp cors show` for `cloud-helper-mcp`.
-- **Fix priority:** (1) Add `http://127.0.0.1` to Entra app registration redirect URIs — platform type must be Mobile/Desktop for dynamic port support. (2) Update server metadata to advertise both `http://localhost` and `http://127.0.0.1`. (3) Confirm CORS headers on `/token` for `https://foundry.azure.com`.
+Root cause was deployment config drift, not route code:
+- `appCommandLine` was empty → App Service fell back to gunicorn hosting page
+- Missing `TENANT_ID` env var → app startup would fail if forced to run
 
-### 2026-05-08T17:50:48Z — CROSS-AGENT CONFIRMATION: H1 + IP Allowlisting Finding
+**Fix applied:**
+- Set startup: `python -m uvicorn server:app --host 0.0.0.0 --port 8000`
+- Added `TENANT_ID` on both prod and staging
+- Verified: both slots return 200 on `/.well-known/oauth-protected-resource` ✅
 
-**H1 (HIGH) is now CONFIRMED by 3 independent sources:**
-1. **Holden (Analysis):** RFC 8252 §8.3 — `127.0.0.1` ≠ `localhost`
-2. **Naomi (Code Audit):** Confirmed in test client — binds to `127.0.0.1`, sends in redirect_uri
-3. **Amos (Entra Config):** Confirmed in app registration — `http://localhost` only, `http://127.0.0.1` missing
+### 6. Test Client Refresh (2026-05-09)
 
-**IP Allowlisting secondary finding (from Naomi's audit):**
-- Azure Web App blocks IP 70.231.17.250 with 403 Ip Forbidden
-- Prevents live endpoint probing but not the cause of OAuth hang
-- Should be addressed during remediation
+Replaced legacy OAuth client with RS-mode PKCE flow:
+- Fetches both `/.well-known` documents for discovery
+- Loopback PKCE on `127.0.0.1` (demonstrates H1 redirect issue + fix)
+- Direct Entra token exchange (no DCR)
+- Calls MCP `/mcp` with bearer token
 
+Subcommands: `repro` (prod slot, bug), `fixed` (staging slot, remedy)
 
-### 2026-05-08T18:02:45Z — CROSS-PROPAGATION: H2 CONFIRMED + RS-MODE ARCHITECTURAL FIX REQUIRED
+### 7. Direct-Entra FastMCP Refactor (2026-05-11)
 
-**Monica's research confirms H2 with architectural clarity:**
+**Decision:** Refactor from custom `OAuthProxy` to FastMCP native RS-mode.
 
-- **H2 CONFIRMED (HIGH):** VS Code and AI Foundry do NOT invoke the MCP server's /token endpoint. They use their own OAuth frameworks that obtain Bearer tokens directly from Entra ID (`https://vscode.dev/redirect` for VS Code, `https://foundry.azure.com/` for Foundry) and bypass the MCP server's Authorization Server role entirely.
-- **Architectural root cause:** The intel `cloud-helper-mcp` acts as an MCP Authorization Server, but production clients expect Resource Server behavior (RFC 9728 PRM).
-- **Reference:** onsemi `labs/mcp-prm-oauth` demonstrates the correct pattern: MCP server publishes `/.well-known/oauth-protected-resource` pointing to Entra, validates Bearer tokens using JWT validation.
-- **Key evidence:** MCP spec, VS Code source (`IAuthenticationService`, `https://vscode.dev/redirect`), Foundry OAuth passthrough docs, MCP Python SDK analysis.
+**What changed:**
+- Removed `EntraOAuthProxy` class + proxy wiring (DCR, forwarded params)
+- Implemented `RemoteAuthProvider` + `JWTVerifier` pattern
+- FastMCP natively publishes RFC 9728 PRM at `/.well-known/oauth-protected-resource/mcp`
+- Code reduction: ~235 → ~60 lines
 
-**Recommended RS-mode switch:**
-1. Remove `/authorize` and `/token` proxy endpoints
-2. Add `/.well-known/oauth-protected-resource` (RFC 9728 PRM) → Entra
-3. Validate Bearer tokens via JWT validation middleware
-4. Clients automatically use this metadata to route tokens through Entra
+**What stayed the same:**
+- `auth.py` (EntraTokenValidator) — completely unchanged
+- `config.py` — unchanged
+- Tool definitions — unchanged
 
-**Status:** H1 + H2 both confirmed. Fix strategy ready for Phase 2 implementation.
+**Key insight:** `JWTVerifier` preserves Entra JWT claims on `AccessToken.claims`, so tools can extract `name`, `preferred_username`, `oid`, `tid` without manual decoding.
 
-### 2026-05-09T01:17:47Z — Post-Provision Verification
+---
 
-Ran full verification suite via `az` CLI after `azd provision` success. All 5 check categories passed.
+## Technical Decisions
 
-**CHECK 1: Web app and slots exist**
-- ✅ Web app `cloud-helper-fastmcp` exists in resource group `rg-mcp-auth-test`
-- ✅ App state: `Running`
-- ⚠️ **Only 1 slot found (staging)** — production slot deployment likely uses root `cloud-helper-fastmcp` as production, no named production slot
+**FastMCP native auth is the right path.** Significant code reduction, zero breaking changes, future-proof for token caching + introspection support in FastMCP upgrades. Risk is low because `auth.py` validation logic is untouched.
 
-**CHECK 2: App settings per slot (CLIENT_ID, AUDIENCE, AZURE_TENANT_ID)**
-- ✅ **Staging slot settings:**
-  - CLIENT_ID: `7810abd8-ed7b-40f4-a447-04cc1658eab6` (fixed app)
-  - AUDIENCE: `api://cloud-helper-mcp-fixed-mcp-auth-test/mcp.access`
-  - AZURE_TENANT_ID: `c29d6c2b-f765-41b3-b2a2-971a14239dfd`
-- ✅ **Production slot settings:**
-  - CLIENT_ID: `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43` (repro app)
-  - AUDIENCE: `api://cloud-helper-mcp-repro-mcp-auth-test/mcp.access`
-  - AZURE_TENANT_ID: `c29d6c2b-f765-41b3-b2a2-971a14239dfd` (same tenant)
+---
 
-**CHECK 3: Entra app registrations exist**
-- ✅ Both app regs found (queried directly by CLIENT_ID from slots):
-  - `cloud-helper-mcp-repro-mcp-auth-test` → `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43`
-  - `cloud-helper-mcp-fixed-mcp-auth-test` → `7810abd8-ed7b-40f4-a447-04cc1658eab6`
+## Open Items
 
-**CHECK 4: Redirect URIs match expected config**
-- ✅ **Repro app (prod):**
-  - Redirect URIs: `["http://localhost"]`
-  - Expected: `["http://localhost"]` (bug preserved ✓)
-- ✅ **Fixed app (staging):**
-  - Redirect URIs: `["http://127.0.0.1", "http://localhost"]`
-  - Expected: `["http://localhost", "http://127.0.0.1"]` (order differs but both present ✓)
+- VS Code AADSTS65002 issue awaits upstream VS Code MCP client fix or tenant admin Graph consent grant
+- Python test client is the functional workaround for demo until VS Code implements resource-scoped token discovery
 
-**CHECK 5: HTTP health checks**
-- ✅ Prod slot: HTTP 200 from `https://cloud-helper-fastmcp.azurewebsites.net/`
-- ✅ Staging slot: HTTP 200 from `https://cloud-helper-fastmcp-staging.azurewebsites.net/`
+---
 
-## Summary
+## Files & Artifacts
 
-All infrastructure provisioning checks PASSED. The deployment is healthy:
-- Both slots running and responsive
-- Correct app registrations linked to correct slots
-- Redirect URI bug preserved on prod as intended for comparison testing
-- Redirect URI fix deployed on staging
+- `server/server.py` — FastMCP RS-mode with RemoteAuthProvider + JWTVerifier
+- `server/auth.py` — EntraTokenValidator (unchanged from previous iterations)
+- `server/config.py` — Settings management (unchanged)
+- `client/test_client.py` — RS-mode PKCE test client with repro/fixed subcommands
+- `.squad/agents/naomi/history-archive/{timestamp}-history.md` — Full detailed history (archived)
 
-No remediation needed at infrastructure level. Ready for functional testing of OAuth flows.
+---
 
-### 2026-05-09T01:23:48.240-04:00 — Rebuilt local PKCE repro/fix client
+## Sprint Summary (2026-05-11)
 
-- Replaced the legacy `client/test_oauth_client.py` flow with a standalone Click + httpx script at `client/test_client.py`.
-- Added `repro` and `fixed` subcommands with slot-specific defaults:
-  - repro → prod slot `https://cloud-helper-fastmcp.azurewebsites.net`, client ID `52e5e7ea-ba6a-4d66-91a3-785d2edc4d43`
-  - fixed → staging slot `https://cloud-helper-fastmcp-staging.azurewebsites.net`, client ID `7810abd8-ed7b-40f4-a447-04cc1658eab6`
-- The client now fetches both server well-known documents, binds the callback listener to `127.0.0.1`, performs PKCE S256, redeems the auth code at Entra, and calls MCP `tools/list` with the bearer token.
-- Updated `client/pyproject.toml` to use `httpx` + `click`, refreshed `client/uv.lock`, and rewrote `client/README.md` for `uv run test_client.py repro|fixed`.
-- Updated repo-facing helper docs/scripts (`Makefile`, `scripts/README.md`, `scripts/fix-entra-redirect-uri.sh`, `scripts/provision-two-app-regs.sh`) so operator instructions point at the new client entrypoint.
-- Validation completed locally with `cd client && uv lock && uv sync && uv run python -m py_compile test_client.py && uv run test_client.py --help`.
+✅ Direct-Entra FastMCP refactor complete  
+✅ Well-known routes verified on both Azure slots  
+✅ Test client RS-mode flow working  
+✅ auth.py JWT validation unchanged  
+✅ Code quality improved, maintainability increased  
 
-### 2026-05-09T16:34:45Z — Fixed Azure well-known route deployment/runtime mismatch
-
-- Read the actual server source first: `server.py` already mounted `/.well-known/*` on the root Starlette app. The bug was deployment/runtime, not route registration.
-- `startup.sh`, `config.py`, `pyproject.toml`, and `infra/modules/appService.bicep` in HEAD already reflected the intended fix path: App Service should start `server:app`, and config should tolerate `TENANT_ID`/`AZURE_TENANT_ID`.
-- Live Azure state was wrong: both prod and staging had empty `appCommandLine`, so App Service fell back to the default gunicorn hosting app (`hostingstart.html` on `/`, 404 on `/mcp` and `/.well-known/*`).
-- Live Azure state was also missing `TENANT_ID`; only `AZURE_TENANT_ID` was present. That would break imports if startup loaded the Starlette app directly.
-- Applied runtime fix with `az webapp config set` on prod + staging: `python -m uvicorn server:app --host 0.0.0.0 --port 8000`.
-- Added `TENANT_ID` as a slot-sticky app setting on prod + staging to match the app's required settings.
-- Deployed code to both slots with `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy` (completed) and `AZD_DEPLOY_SERVER_SLOT_NAME=production azd deploy` (timed out in azd wait loop, but prod came up healthy and served the fixed app).
-- Final verification:
-  - `https://cloud-helper-fastmcp.azurewebsites.net/.well-known/oauth-protected-resource` → 200 JSON via `uvicorn`
-  - `https://cloud-helper-fastmcp-staging.azurewebsites.net/.well-known/oauth-protected-resource` → 200 JSON via `uvicorn`
-  - `/mcp` on both slots → 401 JSON with Bearer challenge pointing at the correct `resource_metadata` URL
+**Next:** Live VS Code MCP flow validation with DevTools tracing to confirm resource-scoped token path and identity claims.

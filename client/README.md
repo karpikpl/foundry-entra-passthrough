@@ -1,49 +1,41 @@
-# MCP OAuth PKCE test client
+# MCP direct-Entra PKCE test client
 
-This client reproduces the Entra loopback redirect bug for the repro slot and confirms the fix on the staging slot.
+This client validates the direct-Entra pattern end-to-end:
 
-## What it tests
-
-1. Fetches `/.well-known/oauth-protected-resource`
-2. Fetches `/.well-known/oauth-authorization-server`
-3. Runs OAuth authorization-code + PKCE with a local callback on `http://127.0.0.1:{random_port}`
-4. Exchanges the auth code for a token
-5. Calls the MCP `/mcp` endpoint with `tools/list`
-
-The intentional `127.0.0.1` redirect is what triggers the repro app registration bug: the repro app only allows `http://localhost`, while the fixed app allows both `http://localhost` and `http://127.0.0.1`.
+1. Uses a **pre-registered** public client ID (no Dynamic Client Registration)
+2. Runs OAuth authorization-code + PKCE against Entra
+3. Exchanges the auth code for an access token
+4. Calls the MCP `/mcp` endpoint and tries `hello_world` (fallback: `hello`)
+5. Prints token claims so QA can confirm `name`, `preferred_username`/`upn`, and `oid`
 
 ## How to run
 
 ```bash
 cd client
-uv run test_client.py repro
-uv run test_client.py fixed
+uv run test_client.py direct
 ```
 
 Optional overrides:
 
 ```bash
-uv run test_client.py repro --client-id <app-id> --server-url https://example.azurewebsites.net
-uv run test_client.py fixed --no-open-browser
+uv run test_client.py direct \
+  --server-url https://example.azurewebsites.net/mcp \
+  --server-client-id <server-app-id-guid> \
+  --client-id <pre-registered-public-client-id>
 ```
 
-## What to expect
+Defaults:
+- `--client-id` falls back to `TEST_CLIENT_ID`, then to VS Code's public client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`)
+- `--scope` defaults to `api://{AZURE_CLIENT_ID}/mcp.access`
 
-### Repro
+## Expected result
 
 ```text
-❌ REPRO CONFIRMED: redirect_uri rejected by Entra
+✅ Direct Entra flow succeeded: tools/list returned ...
+--- Token claims ---
+  name       ...
+  upn        ...
+  oid        ...
 ```
 
-Typical causes:
-- `redirect_uri_mismatch`
-- `access_denied`
-- no callback at all because Entra rejected `http://127.0.0.1:{port}` before redirecting
-
-### Fixed
-
-```text
-✅ FIX CONFIRMED: { ... tools/list response ... }
-```
-
-That means Entra accepted the `127.0.0.1` redirect, the token exchange succeeded, and the bearer token worked against `/mcp`.
+If Entra or the MCP server is misconfigured, the failure point should be obvious from the browser redirect, token exchange error, or the final MCP tool call.

@@ -116,3 +116,59 @@ cd client && uv sync
 cd client && uv run python test_client.py --help
 az bicep build --file infra/main.bicep
 ```
+
+## Learnings
+
+- Direct-Entra Bicep support works with `Microsoft.Graph/applications@v1.0` plus `api.preAuthorizedApplications`; `delegatedPermissionIds` must use the exposed scope GUID, not the scope value string.
+- App Service EasyAuth v2 for MCP should use `unauthenticatedClientAction: 'Return401'`, the tenant-specific `https://login.microsoftonline.com/{tenantId}/v2.0` issuer, token store enabled, and slot-specific `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`.
+- Removing the proxy app registration also means removing `PROXY_CLIENT_*` assumptions from AZD hooks; postprovision only needs the MCP server app IDs/audiences and can ensure their service principals exist.
+
+## 2026-05-11 — Direct-Entra Infrastructure Sprint Close
+
+**Date:** 2026-05-11T13:07:59Z  
+**Session:** direct-entra-implementation  
+**Scribe:** Scribe Agent  
+**Status:** ✅ COMPLETE
+
+### Delivered
+
+1. **Bicep Refactor for Direct-Entra**
+   - Removed proxy client app registration from appRegistrations.bicep
+   - Added api.preAuthorizedApplications for VS Code (aebc6443...) on fixed app
+   - Configured EasyAuth v2 on both prod/staging slots
+   - Set issuer to https://login.microsoftonline.com/{tenantId}/v2.0
+   - Added allowedClientApplications for VS Code
+   - Simplified hooks (preprovision → no-op, postprovision → bootstrap only)
+   - Verification: bicep build ✅, shell syntax ✅
+
+2. **AZD Environment Population**
+   - Implemented hooks/postprovision.sh to auto-generate client/.env
+   - Reads azd env get-values for tenant, client IDs, server URLs
+   - Generates .env with REPRO/FIXED slot environments
+   - client/test_client.py loads via python-dotenv with fallback
+   - Verification: hook runs successfully, .env generated ✅
+
+3. **Infrastructure Validation**
+   - Audited Bicep outputs, slot config, app registrations
+   - Confirmed redirect URIs, pre-authorization setup
+   - No manual portal work needed for pre-auth (Bicep Graph resource handles)
+
+### Key Decision
+
+Bicep now owns EasyAuth + pre-auth configuration. Direct-Entra token validation integrated at deployment time.
+
+### Files
+
+- infra/main.bicep (refactored)
+- infra/modules/appRegistrations.bicep (removed proxy, added VS Code pre-auth)
+- infra/modules/appService.bicep (EasyAuth v2)
+- infra/main.parameters.json (removed proxy secrets)
+- hooks/postprovision.sh (AZD .env automation)
+
+### Blockers
+
+None identified. All Bicep changes validated and ready for next AZD provision.
+
+### Next
+
+Monitor slot deployments during AZD runs. Verify EasyAuth token validation + PRM metadata in staging.

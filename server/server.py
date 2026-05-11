@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import base64
-import json
 import logging
-from typing import Any
 
 import uvicorn
 from fastmcp import Context, FastMCP
-from fastmcp.server.auth import OAuthProxy
+from fastmcp.server.auth import RemoteAuthProvider
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.server.auth.middleware.auth_context import get_access_token
 
@@ -20,84 +17,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _decode_jwt_payload(token: str) -> dict[str, Any]:
-    """Decode a JWT payload without signature verification.
+def _entra_scope_resource() -> str:
+    settings = get_settings()
+    audience = settings.audience
+    if audience:
+        return audience.removesuffix("/mcp.access")
+    if settings.client_id.startswith(("api://", "http://", "https://")):
+        return settings.client_id.removesuffix("/mcp.access")
+    return f"api://{settings.client_id}"
 
-    Safe to call on tokens that have already been validated — used to
-    extract embedded claims from the FastMCP JWT or the upstream Entra token.
-    """
-    try:
-        payload_b64 = token.split(".")[1]
-        # Add padding so base64 doesn't choke on missing '=' characters.
-        payload_b64 += "=" * (4 - len(payload_b64) % 4)
-        return json.loads(base64.urlsafe_b64decode(payload_b64))
-    except Exception:
+
+def extract_token_info() -> dict[str, str]:
+    access_token = get_access_token()
+    if not access_token:
         return {}
 
-
-class EntraOAuthProxy(OAuthProxy):
-    """OAuthProxy subclass that embeds Entra user claims in FastMCP JWTs.
-
-    OAuthProxy's default _extract_upstream_claims returns None — no user
-    info is embedded. By overriding it here we decode the Entra access token
-    (already validated by JWTVerifier) and forward key identity claims so
-    that tool handlers can read them without a separate userinfo call.
-    """
-
-    async def _extract_upstream_claims(
-        self, idp_tokens: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        access_token = idp_tokens.get("access_token", "")
-        claims = _decode_jwt_payload(access_token)
-        if not claims:
-            return None
-        # Return only the claims that are useful to tools — avoid leaking
-        # internal Entra bookkeeping fields into client-visible JWTs.
-        return {
-            k: claims[k]
-            for k in ("oid", "name", "preferred_username", "upn", "tid", "email")
-            if k in claims
-        }
+    claims = access_token.claims or {}
+    return {
+        "display_name": (
+            claims.get("name")
+            or claims.get("preferred_username")
+            or claims.get("upn")
+            or claims.get("email")
+            or access_token.client_id
+        ),
+        "upn": (
+            claims.get("preferred_username")
+            or claims.get("upn")
+            or claims.get("email")
+            or ""
+        ),
+        "oid": claims.get("oid") or claims.get("sub") or "",
+        "tid": claims.get("tid") or "",
+    }
 
 
 def _create_mcp() -> FastMCP:
     settings = get_settings()
 
-    # WHY OAuthProxy instead of RS-mode (TokenVerifier + AuthSettings)?
-    #
-    # In RS-mode, the /.well-known/oauth-protected-resource response advertises
-    # Entra's URL (login.microsoftonline.com/<tenant>/v2.0) as the auth server.
-    #
-    # VS Code's microsoft-authentication extension registers itself as the handler
-    # for any auth server matching "https://login.microsoftonline.com/*".  When it
-    # handles MCP auth it bundles Microsoft Graph (resource 00000003) scopes so it
-    # can populate the Accounts panel with the user's name and profile picture.
-    #
-    # Entra blocks this with AADSTS65002: VS Code (app aebc6443, a Microsoft
-    # first-party app) is not pre-authorised to request Graph (also a Microsoft
-    # first-party resource) in any *third-party* tenant.  This fails for every
-    # account type (member or guest) in any custom Entra tenant — there is no
-    # per-tenant workaround.
-    #
-    # OAuthProxy fixes this by presenting OUR OWN server URL as the auth server.
-    # VS Code doesn't match it against login.microsoftonline.com/* so it falls back
-    # to a plain OAuth 2.1 PKCE flow that requests ONLY the scopes we specify.
-    # No Graph request → no AADSTS65002.
-    #
-    # The proxy:
-    #   1. Exposes /auth/register, /auth/authorize, /auth/token on our domain.
-    #   2. Accepts Dynamic Client Registration (DCR) from any MCP client.
-    #   3. Redirects the user to Entra for real authentication.
-    #   4. After Entra callback, validates the Entra JWT (via JWTVerifier below).
-    #   5. Issues its own short-lived FastMCP JWT to the MCP client.
-    #   6. MCP clients send that FastMCP JWT as the Bearer token to /mcp.
-    #
-    # PREREQUISITE: register the proxy's fixed callback URI in the Entra app:
-    #   {RESOURCE_HOST}/auth/callback
-    # e.g. https://cloud-helper-fastmcp-staging.azurewebsites.net/auth/callback
-
-    # JWTVerifier validates the upstream Entra token that arrives at the proxy
-    # callback, before the proxy issues its own FastMCP JWT to the client.
     entra_verifier = JWTVerifier(
         jwks_uri=settings.jwks_url,
         issuer=settings.issuer,
@@ -105,52 +62,12 @@ def _create_mcp() -> FastMCP:
         required_scopes=["mcp.access"],
     )
 
-    auth = EntraOAuthProxy(
-        # Entra's standard OAuth 2.0 v2.0 endpoints for our tenant.
-        upstream_authorization_endpoint=(
-            f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/authorize"
-        ),
-        upstream_token_endpoint=(
-            f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/token"
-        ),
-        # Pre-registered Entra app credentials (client secret required because
-        # Entra doesn't support Dynamic Client Registration).
-        upstream_client_id=settings.client_id,
-        upstream_client_secret=settings.client_secret,
-        # Entra v2.0 requires the full scope URI (api://<app-id>/<scope>).
-        # We pass it here so the proxy includes it when redirecting to Entra,
-        # regardless of what abbreviated scope the MCP client requested.
-        #
-        # Do NOT include offline_access or openid alongside a custom api:// scope.
-        # Entra assigns those OIDC scopes to a different internal SP, creating a
-        # split consent: mcp.access is consented for the fixed app SP, but
-        # offline_access/openid are consented for a separate Microsoft SP.
-        # The token endpoint then rejects with AADSTS65001 because the fixed app
-        # SP's grant is missing offline_access/openid.
-        # The mcp.access access token already carries user identity claims
-        # (oid, upn, tid), so OAuthProxy can identify the user without openid.
-        extra_authorize_params={
-            "scope": f"{settings.resolved_audience}/mcp.access",
-        },
-        # OAuthProxy token exchange bug with Entra:
-        # _prepare_scopes_for_token_exchange() returns the scopes from the
-        # transaction (i.e. what VS Code requested: short "mcp.access").
-        # Entra's token endpoint requires the full api:// URI to match the
-        # consent grant — sending "mcp.access" alone returns AADSTS65001.
-        # extra_token_params is applied via dict.update() AFTER the scope is
-        # set, so this overrides it with the full URI.
-        extra_token_params={
-            "scope": f"{settings.resolved_audience}/mcp.access",
-        },
+    auth = RemoteAuthProvider(
         token_verifier=entra_verifier,
-        # base_url tells the proxy what URL to advertise for its own auth
-        # endpoints (/auth/authorize, /auth/token, /auth/register).
-        # Derived from RESOURCE_HOST env var — no hardcoded URLs.
+        authorization_servers=[settings.issuer],
         base_url=settings.resource_url,
-        # Entra does not support RFC 8707 resource indicators. VS Code sends
-        # resource=<mcp-url> in the authorization request; if forwarded it
-        # conflicts with the api:// scope and causes AADSTS9010010.
-        forward_resource=False,
+        scopes_supported=[f"{_entra_scope_resource()}/mcp.access"],
+        resource_name="Cloud Helper MCP",
     )
 
     return FastMCP(
@@ -168,20 +85,11 @@ def hello(name: str, ctx: Context) -> str:
     if not access_token:
         return f"Hello, {name}! (unauthenticated)"
 
-    # upstream_claims are embedded by EntraOAuthProxy._extract_upstream_claims
-    # at token issuance and re-attached to AccessToken.claims by FastMCP at
-    # validation time. Read directly from claims — do NOT decode the JWT manually.
-    upstream = (access_token.claims or {}).get("upstream_claims", {})
-
-    display_name = (
-        upstream.get("name")
-        or upstream.get("preferred_username")
-        or upstream.get("upn")
-        or access_token.client_id
-    )
-    upn = upstream.get("preferred_username") or upstream.get("upn", "")
-    oid = upstream.get("oid", "")
-    tid = upstream.get("tid", "")
+    token_info = extract_token_info()
+    display_name = token_info.get("display_name", access_token.client_id)
+    upn = token_info.get("upn", "")
+    oid = token_info.get("oid", "")
+    tid = token_info.get("tid", "")
 
     ctx.info(f"hello invoked by {display_name} (oid={oid})")
     return (
