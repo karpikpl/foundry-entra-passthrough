@@ -19,6 +19,13 @@
 
 - **2026-05-11:** Created comprehensive architecture documentation in `docs/architecture.md` covering the entire investigation, fix strategy, and implementation details. Key insights: (1) The original AS-mode design conflicted with how production clients (VS Code, Foundry) acquire tokens. (2) The fix requires three app registrations: proxy client, fixed resource server, and repro for comparison. (3) Claims pass-through via `upstream_claims` is the correct pattern for multi-hop auth. (4) Entra's `aud` field uses GUID format in v2.0 tokens, not the `api://` URI. (5) Scope split occurs when mixing OIDC scopes with custom resource scopes — omit OIDC scopes entirely. (6) Never manually decode JWTs in tools; rely on framework validation middleware.
 
+- **2026-05-11 (documentation complete):** Created comprehensive documentation suite for the direct-Entra MCP OAuth pattern:
+  - `README.md`: Project overview with ASCII architecture diagram, quick-start config, live demo URLs
+  - `docs/architecture.md`: Full rewrite — auth flow sequence diagrams, why direct-Entra works, EasyAuth problems, two-slot demo setup, troubleshooting guide, Entra app registration setup (CLI + Bicep)
+  - `docs/vscode-setup.md`: Step-by-step VS Code configuration, what to expect (account picker), debugging with DevTools, administrator checklist
+  
+  Key documented facts: (1) VS Code client ID `aebc6443-996d-45c2-90f0-388ff96faa56` must be in `preAuthorizedApplications`. (2) Production slot = repro (broken), staging slot = fixed (works). (3) Server uses `RemoteAuthProvider` + `JWTVerifier` — no EasyAuth. (4) PRM at `/.well-known/oauth-protected-resource` triggers VS Code's native Microsoft account flow.
+
 - **2026-05-08:** The OAuth failure pattern is: Entra login completes successfully (user sees "Sign-in successful!") but the MCP client never POSTs to the server's `/token` endpoint. The connection hangs. This points to a client-side issue, not a server-side one. The server's `/token` endpoint works when tested manually.
 - **2026-05-08:** Top two hypotheses: (1) Redirect URI mismatch — `http://127.0.0.1:<port>` vs `http://localhost` are NOT equivalent per RFC 8252 §8.3, and Entra may redirect to one while the client listens on the other. (2) The MCP client SDK may not implement the token exchange step at all, expecting the host app (VS Code / AI Foundry) to handle it. Both are HIGH confidence.
 - **2026-05-08:** The Entra app registration platform type matters: "Mobile/Desktop" allows dynamic ports on localhost; "Web" requires exact URI match. This needs to be verified by Amos.
@@ -97,3 +104,5 @@
 - **FastMCP does NOT validate JWTs.** All JWKS fetching, RS256 validation, `kid` rotation, `scp`/`roles` parsing stays in `auth.py` — zero changes there. The `EntraTokenVerifier` adapter is ~15 lines.
 - **`get_access_token()` from `auth_context`.** FastMCP stores the resolved `AccessToken` in a contextvar via `AuthContextMiddleware`. Tools call `get_access_token()` instead of our custom `get_token_claims()`. AccessToken has `client_id`, `scopes`, `token`, `expires_at` — no raw claims. If `sub` is needed, extend `AccessToken` with a `subject` field.
 - **`BearerTokenAuthMiddleware` and `build_well_known_routes()` are now replaceable.** Refactor collapses `server.py` from ~235 to ~60 lines. `well_known.py` can be deleted. `auth.py` and `config.py` untouched. Risk: low.
+
+- **2026-05-11 (doc trimming):** User feedback: too much documentation, focus on cleanup not bloat. Trimmed README to ~50 lines (one-para description, 4 bullet points, config snippet, live demo, pre-auth fix, references). Deleted `docs/architecture.md` and `docs/vscode-setup.md`. Philosophy: link to MS Learn and external repos instead of duplicating their content; 2-minute README is better than 100+ lines of local docs.
