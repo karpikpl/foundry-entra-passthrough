@@ -59,6 +59,31 @@ else
   echo "postprovision: FIXED_CLIENT_SECRET already set (re-provision) — skipping credential creation."
 fi
 
+# ── Admin consent for mcp.access scope ───────────────────────────────────────
+# Entra requires either user consent or admin consent before tokens can be issued
+# for a scope. WAM (Windows Auth Manager) in VS Code performs silent SSO which
+# bypasses the interactive consent UI, causing AADSTS65001 at token exchange.
+# Granting admin consent (AllPrincipals) avoids per-user consent prompts entirely.
+#
+# This is idempotent: if a grant already exists for this SP, the POST returns 409
+# and we ignore it.
+echo "postprovision: Ensuring service principal exists for fixed app..."
+FIXED_SP_ID=$(az ad sp list --filter "appId eq '$FIXED_CLIENT_ID'" --query "[0].id" -o tsv 2>/dev/null)
+if [ -z "$FIXED_SP_ID" ]; then
+  FIXED_SP_ID=$(az ad sp create --id "$FIXED_CLIENT_ID" --query id -o tsv)
+  echo "postprovision: Created service principal $FIXED_SP_ID."
+else
+  echo "postprovision: Service principal already exists ($FIXED_SP_ID)."
+fi
+
+echo "postprovision: Granting admin consent for mcp.access scope..."
+az rest --method POST \
+  --uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants" \
+  --body "{\"clientId\":\"$FIXED_SP_ID\",\"consentType\":\"AllPrincipals\",\"resourceId\":\"$FIXED_SP_ID\",\"scope\":\"mcp.access offline_access openid\"}" \
+  --output none 2>/dev/null \
+  && echo "postprovision: Admin consent granted." \
+  || echo "postprovision: Admin consent grant returned non-zero (may already exist — continuing)."
+
 RESOURCE_GROUP_SUFFIX=${AZURE_RESOURCE_GROUP#rg-}
 REPRO_SERVER_URL="https://${WEB_APP_NAME}.azurewebsites.net"
 FIXED_SERVER_URL="https://${WEB_APP_NAME}-staging.azurewebsites.net"
