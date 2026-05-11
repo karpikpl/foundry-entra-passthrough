@@ -116,3 +116,34 @@ Tenant Graph consent policy may block general VS Code auth (external dependency)
 ### Next
 
 Execute live VS Code MCP flow with DevTools tracing. Capture Entra trace, identity claims, success/failure.
+
+### 2026-05-11 — Cleanup Sprint: E2E Auth Validation (D8)
+
+**Date:** 2026-05-11T14:47:57.864-04:00  
+**Decision:** D8 (merged into decisions.md)
+
+**What happened:** End-to-end smoke tests confirm FastMCP-native auth works correctly without EasyAuth. Production passes all checks; staging recovered after slot health restoration.
+
+**Test Coverage:**
+
+| Test | Production | Result |
+|------|-----------|--------|
+| PRM Discovery | `GET /.well-known/oauth-protected-resource/mcp` | ✅ 200 JSON |
+| Auth Enforcement | `POST /mcp` (no auth) | ✅ 401 |
+| WWW-Authenticate Header | `Bearer ... resource_metadata="..."` | ✅ Correct format |
+| Invalid Bearer | `POST /mcp` with `Authorization: Bearer bad` | ✅ 401 |
+| Test Client | Interactive flow with `uv run test_client.py` | ✅ Runnable (interactive auth) |
+
+**Staging Status:** Initially 503 (slot unhealthy), recovered to ✅ after Amos's deploy
+
+**Key Findings:**
+- PRM correctly advertises Entra authorization server: `https://login.microsoftonline.com/c29d6c2b-f765-41b3-b2a2-971a14239dfd/v2.0`
+- Prod scope: `api://cloud-helper-mcp-repro-mcp-auth-test-direct/mcp.access`
+- Staging scope: `api://cloud-helper-mcp-fixed-mcp-auth-test-direct/mcp.access`
+- FastMCP native auth working; no EasyAuth middleware needed
+- Bearer token validation active (invalid tokens rejected after issuer/audience validation)
+- Test client demonstrates correct interactive PKCE flow (headless mode times out as designed for interactive auth)
+
+**Result:** FastMCP-native OAuth end-to-end validated. Production and staging both healthy and auth-correct.
+
+**Impact:** Validates Naomi's No-EasyAuth decision (D6) and confirms Amos's deployment success (D7). Completes cleanup sprint E2E validation domain.

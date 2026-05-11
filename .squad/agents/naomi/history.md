@@ -126,3 +126,35 @@ Subcommands: `repro` (prod slot, bug), `fixed` (staging slot, remedy)
 - `server/config.py` no longer needs `CLIENT_SECRET`; the active runtime inputs are tenant, client/resource identifiers, host, and optional `RESOURCE_APP_ID` for GUID-form `aud` validation.
 - For the QA client, explicitly discovering PRM first and then reconnecting with `BearerAuth` makes failures much easier to localize: metadata discovery vs Entra sign-in/token issuance vs authenticated MCP calls.
 - `uv export --no-hashes --no-dev --no-editable -o requirements.txt` currently emits a leading `.` entry for the packaged server project; that line is expected in the pip fallback file and is not an accidental dependency bump.
+
+### 2026-05-11 — Cleanup Sprint: Server Cleanup + Auth Verification (D5, D6)
+
+**Date:** 2026-05-11T15:10:26.063-04:00  
+**Decisions:** D5 + D6 (merged into decisions.md)  
+**Commit:** `4f680e2`
+
+**What happened:** Removed dead authentication code and verified FastMCP native auth works without EasyAuth. Simplified test client for slot targeting.
+
+**D5 — Server Cleanup:**
+- **Deleted** `server/auth.py` — no longer in request path for FastMCP native auth
+- **Simplified** `server/server.py` — kept only `RemoteAuthProvider` + `JWTVerifier` path
+- **Simplified** `server/config.py` — removed `CLIENT_SECRET` (not used in direct-Entra RS-mode)
+- **Regenerated** `server/requirements.txt` from `uv export`
+- **Key decision:** Delete dead code instead of preserving for reference (keeps codebase clean)
+
+**D6 — No EasyAuth Verification:**
+- **Confirmed:** FastMCP 3.2.4 natively supports OAuth without EasyAuth middleware
+- **Added:** Public RFC 9728 root alias at `/.well-known/oauth-protected-resource`
+- **Broadened:** `JWTVerifier(audience=...)` to accept both:
+  - App registration GUID (form in issued tokens)
+  - `api://...` identifier URI (form in advertised scopes)
+- **Verified locally:** GET well-known routes return 200; POST /mcp without auth returns 401; invalid tokens rejected correctly
+
+**Test Client Enhancement:**
+- Added `--url` flag (alias: `--server-url`) for flexible slot targeting
+- Default: staging (fixed) slot
+- Explicit RFC 9728 PRM discovery before auth
+
+**Result:** Single active auth path (FastMCP native). Test client can target either production or staging. No dead code in request path.
+
+**Impact:** Pairs with Holden's documentation trim (removed old docs explaining legacy paths) and Amos's deployment success (validates simplified code works). Completes cleanup sprint server-cleanup domain.

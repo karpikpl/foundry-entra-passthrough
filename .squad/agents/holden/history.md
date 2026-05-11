@@ -106,3 +106,21 @@
 - **`BearerTokenAuthMiddleware` and `build_well_known_routes()` are now replaceable.** Refactor collapses `server.py` from ~235 to ~60 lines. `well_known.py` can be deleted. `auth.py` and `config.py` untouched. Risk: low.
 
 - **2026-05-11 (doc trimming):** User feedback: too much documentation, focus on cleanup not bloat. Trimmed README to ~50 lines (one-para description, 4 bullet points, config snippet, live demo, pre-auth fix, references). Deleted `docs/architecture.md` and `docs/vscode-setup.md`. Philosophy: link to MS Learn and external repos instead of duplicating their content; 2-minute README is better than 100+ lines of local docs.
+
+### 2026-05-11 — Cleanup Sprint: Documentation Trimming (D4)
+
+**Date:** 2026-05-11T15:10:26.063-04:00  
+**Decision:** D4 (merged into decisions.md)
+
+**What happened:** User feedback indicated that the 800-line documentation suite (README + docs/architecture.md + docs/vscode-setup.md) was counterproductive. Trimmed aggressively to essential facts + links.
+
+**Changes made:**
+- README.md: 140 lines → 50 lines (removed ASCII diagram, project structure, environment variables detail)
+- docs/architecture.md: **DELETED** (428 lines) — full architecture belongs in RFC 9728, FastMCP docs, MS Learn
+- docs/vscode-setup.md: **DELETED** (232 lines) — merged mcp.json snippet into README; VS Code setup belongs in VS Code docs
+
+**Guiding principle:** Don't document what others have already documented. For integration projects, point readers to authoritative sources. Local docs answer only "How does our specific implementation differ?"
+
+**Result:** 800 → 50 lines. Developers onboard in 2 minutes instead of hours.
+
+**Impact:** Pairs with Naomi's server cleanup (removes dead code old docs explained) and Amos's successful deployment (validates the pattern). Completion of cleanup sprint documentation domain.

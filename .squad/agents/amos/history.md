@@ -214,3 +214,41 @@ Monitor slot deployments during AZD runs. Verify EasyAuth token validation + PRM
 - Smoke test results after the failed deploy: production `/.well-known/oauth-protected-resource` returned HTTP 503 Application Error; production `/.well-known/oauth-authorization-server`, production `/health`, and the same staging endpoints timed out.
 - EasyAuth configuration exists on both slots (`az webapp auth show`), so no extra portal-only EasyAuth knob was identified in this pass; the blocking issue is the missing AZD slot target for deploy.
 - Existing recommended VS Code MCP entry points at the fixed slot URL: `https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp`.
+
+### 2026-05-11 — Cleanup Sprint: Deployment Success (D7)
+
+**Date:** 2026-05-11T15:10:26.063-04:00  
+**Decision:** D7 (merged into decisions.md)  
+**Commit:** `56e12a7`  
+**Environment:** `mcp-auth-test-direct` (rg-mcp-auth-test-direct)
+
+**What happened:** Achieved successful `azd up` deployment with all infrastructure corrections applied. Both production and staging slots are now healthy and passing smoke tests.
+
+**Infrastructure Corrections Applied:**
+1. **Removed AZD Hooks** — deleted `hooks/preprovision.sh` and `hooks/postprovision.sh`
+2. **Moved Entra SP Creation to Bicep** — tenant-local creation now in `infra/modules/appRegistrations.bicep`
+3. **Removed EasyAuth Settings** — stripped from `infra/modules/appService.bicep`; disabled on live slots via `az resource update`
+4. **Fixed App Service Plan Naming** — now derives from `webAppName` (`asp-<webAppName>`) instead of hardcoded
+5. **Added Health Routes** — `/` and `/health` return 200 so `azd up` runtime probe completes
+
+**Deploy Timeline:**
+- **Attempt 1:** Provisioning ✅, but deployment timed out (production returned 404 on `/`)
+- **Fix:** Added 200 responses on `/` and `/health`
+- **Attempt 2:** `azd up -e mcp-auth-test-direct --no-prompt` → **SUCCESS ✅**
+- **Staging Deploy:** `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy server` → **SUCCESS ✅**
+- **Environment Config:** Set `AZD_DEPLOY_SERVER_SLOT_NAME=production` for future defaults
+
+**Smoke Tests:**
+
+| Slot | PRM Discovery | Auth Enforcement | Health |
+|------|---------------|------------------|--------|
+| Production | ✅ 200 | ✅ 401 | ✅ 200 |
+| Staging | ✅ 200 | ✅ 401 | ✅ 200 |
+
+**App Registrations:**
+- Production: `cloud-helper-mcp-repro-mcp-auth-test-direct` (6e4f7931-...)
+- Staging: `cloud-helper-mcp-fixed-mcp-auth-test-direct` (75e2a38e-...)
+
+**Result:** Infrastructure fully declarative. Deployment repeatable. Both slots healthy and production-ready.
+
+**Impact:** Builds on Naomi's server cleanup (simplified code enables deployment) and verified by Drummer's E2E tests. Completes cleanup sprint deployment domain.
