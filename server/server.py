@@ -85,6 +85,10 @@ def _create_mcp() -> FastMCP:
         # endpoints (/auth/authorize, /auth/token, /auth/register).
         # Derived from RESOURCE_HOST env var — no hardcoded URLs.
         base_url=settings.resource_url,
+        # Entra does not support RFC 8707 resource indicators. VS Code sends
+        # resource=<mcp-url> in the authorization request; if forwarded it
+        # conflicts with the api:// scope and causes AADSTS9010010.
+        forward_resource=False,
     )
 
     return FastMCP(
