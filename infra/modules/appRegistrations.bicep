@@ -45,10 +45,13 @@ var envSuffix = environmentName == 'production' ? '' : '-${environmentName}'
 
 var reproName = 'cloud-helper-mcp-repro${envSuffix}'
 var fixedName = 'cloud-helper-mcp-fixed${envSuffix}'
+var proxyName = 'cloud-helper-mcp-proxy${envSuffix}'
 
 // identifierUris — using display-name based URIs (see file header for rationale)
 var reproIdentifierUri = 'api://${reproName}'
 var fixedIdentifierUri = 'api://${fixedName}'
+// proxyApp is a confidential client only — it has no exposed scopes and no
+// identifierUri. It requests the fixed app's mcp.access scope on behalf of users.
 
 // Common web redirect URIs shared by both app registrations
 var webRedirectUris = [
@@ -150,12 +153,51 @@ resource fixedApp 'Microsoft.Graph/applications@v1.0' = {
   ]
 }
 
+// ── Proxy app registration (OAuthProxy confidential client) ──────────────────
+// Separate client app so that Entra's consent model works correctly:
+//   proxy (client) requests → fixed (resource) mcp.access scope
+// When a single app requests its own scope the consent check behaves
+// inconsistently; a separate client/resource pair resolves this cleanly.
+resource proxyApp 'Microsoft.Graph/applications@v1.0' = {
+  uniqueName: proxyName
+  displayName: proxyName
+  signInAudience: 'AzureADMyOrg'
+
+  web: {
+    redirectUris: [fixedProxyCallbackUri]
+    implicitGrantSettings: {
+      enableAccessTokenIssuance: false
+      enableIdTokenIssuance: false
+    }
+  }
+
+  // Declare the delegated permission the proxy needs so admin consent and the
+  // Entra consent UI both work correctly out of the box.
+  requiredResourceAccess: [
+    {
+      // fixed app is the resource being accessed
+      resourceAppId: fixedApp.appId
+      resourceAccess: [
+        {
+          // fixed app's mcp.access delegated scope
+          id: fixedScopeId
+          type: 'Scope'
+        }
+      ]
+    }
+  ]
+}
+
 // ── Outputs ───────────────────────────────────────────────────────────────────
+
 @description('Client ID of the repro app registration (H1 bug preserved).')
 output reproClientId string = reproApp.appId
 
 @description('Client ID of the fixed app registration (H1 corrected).')
 output fixedClientId string = fixedApp.appId
+
+@description('Client ID of the proxy app registration (OAuthProxy confidential client).')
+output proxyClientId string = proxyApp.appId
 
 @description('Audience for the repro app — the api:// identifier URI, used both for scope construction and JWT aud validation.')
 output reproAudience string = reproIdentifierUri

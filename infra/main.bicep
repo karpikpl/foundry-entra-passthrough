@@ -23,9 +23,9 @@ param location string = resourceGroup().location
 @description('Name of an existing App Service Plan to reuse. Leave empty to create a new B1 plan.')
 param existingPlanName string = ''
 
-@description('Client secret for the fixed Entra app — created by preprovision.sh on re-provision or postprovision.sh on first provision.')
+@description('Client secret for the proxy Entra app — created by preprovision.sh on re-provision or postprovision.sh on first provision.')
 @secure()
-param fixedClientSecret string = ''
+param proxyClientSecret string = ''
 
 // ── Tenant context derived from the current subscription ─────────────────────
 var tenantId = subscription().tenantId
@@ -65,10 +65,11 @@ module appSvc './modules/appService.bicep' = {
     reproAudience: appRegs.outputs.reproAudience
     fixedClientId: appRegs.outputs.fixedClientId
     fixedAudience: appRegs.outputs.fixedAudience
+    proxyClientId: appRegs.outputs.proxyClientId
     // Passed through securely — Bicep sets it as a sticky CLIENT_SECRET app
     // setting on the staging slot. Empty on first provision (postprovision.sh
     // creates the credential and updates the setting directly via az CLI).
-    fixedClientSecret: fixedClientSecret
+    proxyClientSecret: proxyClientSecret
     tags: tags
   }
 }
@@ -82,3 +83,4 @@ output REPRO_CLIENT_ID string = appRegs.outputs.reproClientId
 output REPRO_AUDIENCE string = appRegs.outputs.reproAudience
 output FIXED_CLIENT_ID string = appRegs.outputs.fixedClientId
 output FIXED_AUDIENCE string = appRegs.outputs.fixedAudience
+output PROXY_CLIENT_ID string = appRegs.outputs.proxyClientId

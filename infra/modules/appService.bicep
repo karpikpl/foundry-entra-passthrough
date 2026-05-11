@@ -36,15 +36,15 @@ param reproClientId string
 @description('Full audience (api://.../mcp.access) of the repro app.')
 param reproAudience string
 
-@description('Client ID of the fixed app registration.')
-param fixedClientId string
+@description('Client ID of the proxy app registration (OAuthProxy confidential client).')
+param proxyClientId string
 
-@description('Full audience (api://.../mcp.access) of the fixed app.')
+@description('Full audience (api://.../mcp.access) of the fixed app — JWT aud claim.')
 param fixedAudience string
 
-@description('Client secret for the fixed Entra app registration — used by OAuthProxy to exchange auth codes with Entra. Empty string on first provision; postprovision.sh creates the credential and updates this setting directly.')
+@description('Client secret for the proxy Entra app registration — used by OAuthProxy to exchange auth codes with Entra. Empty string on first provision; postprovision.sh creates the credential and updates this setting directly.')
 @secure()
-param fixedClientSecret string = ''
+param proxyClientSecret string = ''
 
 @description('Tags to apply to all resources.')
 param tags object = {}
@@ -167,11 +167,11 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
   name: 'appsettings'
   parent: stagingSlot
   properties: {
-    // Sticky — fixed profile
-    CLIENT_ID: fixedClientId
+    // Sticky — proxy client authenticates with Entra; fixed app is the resource (AUDIENCE)
+    CLIENT_ID: proxyClientId
     // CLIENT_SECRET is set by preprovision.sh (re-provision) or postprovision.sh
     // (first provision) — empty here means postprovision will populate it via az CLI.
-    CLIENT_SECRET: fixedClientSecret
+    CLIENT_SECRET: proxyClientSecret
     AUDIENCE: fixedAudience
     RESOURCE_HOST: '${webAppName}-staging.azurewebsites.net'
     TENANT_ID: tenantId
