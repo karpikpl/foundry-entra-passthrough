@@ -30,6 +30,29 @@ Commit:** b485692
 - Verification: `bicep build infra/main.bicep` → exit 0, no errors
 - **Decision logged:** D14
 
+### Round 10: New AZD Environment + Entra Naming Parametrization (2026-05-11)
+
+**amos-10a — Create new AZD environment `mcp-auth-test-direct`  
+Status:** READY FOR DEPLOYMENT (awaiting `azd up`)
+
+- Created AZD environment: `azd env new mcp-auth-test-direct`
+- Set Azure subscription, location, resource group, tenant ID, app name, and plan parameters
+- Environment directory: `.azure/mcp-auth-test-direct/`
+- Verification: `az bicep build --file infra/main.bicep --stdout >/dev/null` → exit 0
+- **Decision logged:** D16
+- **Did NOT run:** `azd up` (pending D18 user constraint confirmation)
+
+**amos-10b — Parametrize Entra app registration names with environment suffix  
+Commit:** b8e27d5 (from spawn manifest)
+
+- Updated `infra/modules/appRegistrations.bicep` to append `environmentName` to `displayName` and `uniqueName`
+- Removed production special case (uniform naming across all environments)
+- New app registration names for `mcp-auth-test-direct`:
+  - Repro: `cloud-helper-mcp-repro-mcp-auth-test-direct`
+  - Fixed: `cloud-helper-mcp-fixed-mcp-auth-test-direct`
+- Verification: `az bicep build --file infra/main.bicep --stdout >/dev/null` → exit 0
+- **Decision logged:** D17
+
 ## Key Learnings
 
 ### Infrastructure & Bicep

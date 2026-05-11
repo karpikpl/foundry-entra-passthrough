@@ -297,6 +297,77 @@ Deployment slots (required for blue/green and repro/fixed strategies) are only a
 
 ---
 
+### D16: New direct-Entra AZD environment setup
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-11T13:27:42.425-04:00  
+**Status:** IMPLEMENTED  
+
+**Summary:** Provisioned new AZD environment `mcp-auth-test-direct` for direct-Entra pattern testing.
+
+**New environment details:**
+- AZD environment: `mcp-auth-test-direct`
+- Resource group: `rg-mcp-auth-test-direct`
+- Web app name: `cloud-helper-fastmcp-direct`
+- Subscription: 0721e282-2773-4021-af16-e00641ed5e36 (Cloud Brokers - ASC Testing)
+- Location: eastus
+- Tenant: c29d6c2b-f765-41b3-b2a2-971a14239dfd
+
+**Parameters configured:**
+- `AZURE_SUBSCRIPTION_ID`, `AZURE_LOCATION`, `AZURE_RESOURCE_GROUP`, `AZURE_TENANT_ID`, `WEB_APP_NAME` all set
+- `EXISTING_PLAN_NAME` left blank (creates new S1 plan)
+- Future parameters after `azd up`: `REPRO_CLIENT_ID`, `FIXED_CLIENT_ID`, `REPRO_AUDIENCE`, `FIXED_AUDIENCE`, `WEB_APP_HOSTNAME`
+
+**Verification:**
+- Environment created: `azd env list` confirms `mcp-auth-test-direct` exists
+- Bicep validates: `az bicep build --file infra/main.bicep --stdout >/dev/null` → exit 0
+
+**Next steps:** 
+- `azd env select mcp-auth-test-direct`
+- `azd up` to deploy (pending Piotr decision on Entra naming convention)
+- Post-deploy: verify client IDs/audiences are distinct from main environment
+
+---
+
+### D17: Entra app registration naming — environment-scoped suffix
+**By:** Amos (Infra / DevOps)  
+**Date:** 2026-05-11T13:27:42.425-04:00  
+**Status:** IMPLEMENTED  
+
+**Summary:** Parameterized Entra app registration `displayName` and `uniqueName` to include `environmentName` suffix, ensuring unique names across environments.
+
+**Change:**
+- Updated `infra/modules/appRegistrations.bicep` to suffix both `displayName` and `uniqueName` with `environmentName`
+- Removed production special case (all environments now treated equally)
+- Verified `.azure/mcp-auth-test-direct/.env` contains `AZURE_ENV_NAME="mcp-auth-test-direct"` which flows into Bicep `environmentName`
+
+**New app registration names for mcp-auth-test-direct environment:**
+- Repro app: `cloud-helper-mcp-repro-mcp-auth-test-direct`
+- Fixed app: `cloud-helper-mcp-fixed-mcp-auth-test-direct`
+
+**Verification:**
+- Bicep compilation: `az bicep build --file infra/main.bicep --stdout >/dev/null` → exit 0
+- No naming collisions between environments
+
+**Rationale:** Multiple environments (development, test, production) must have distinct Entra app registrations. Appending environment name ensures no accidental resource collisions.
+
+---
+
+### D18: User directive — Entra app registration naming uniqueness constraint
+**By:** Piotr Karpala (via Copilot)  
+**Date:** 2026-05-11T13:27:42.425-04:00  
+**Status:** ACTIVE  
+
+**Constraint:** Entra app registrations must use a unique suffix in the `displayName` (and internal naming). Do not reuse or collide with existing app registration names. Options include:
+- Environment name (e.g., `mcp-auth-test-direct`)
+- Semantic suffix (e.g., `-direct`)
+- Timestamp (e.g., `-2026-05-11`)
+
+**Rationale:** User requirement to distinguish new direct-Entra app registrations from legacy OAuthProxy app registrations. Prevents accidental reuse and makes audit trails clear.
+
+**Implementation:** D17 implements this via environment name suffix in Bicep.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
