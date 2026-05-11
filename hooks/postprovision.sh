@@ -28,6 +28,37 @@ require_var FIXED_CLIENT_ID
 require_var WEB_APP_NAME
 require_var AZURE_RESOURCE_GROUP
 
+# ── Client secret (first provision only) ──────────────────────────────────────
+# On re-provision, preprovision.sh already created FIXED_CLIENT_SECRET and Bicep
+# deployed it to the staging slot. On first provision, FIXED_CLIENT_SECRET is
+# empty (Bicep received "" and set CLIENT_SECRET=""). We create it here and push
+# it directly to the staging slot app settings via az CLI.
+FIXED_CLIENT_SECRET_VAL=${FIXED_CLIENT_SECRET:-}
+
+if [ -z "$FIXED_CLIENT_SECRET_VAL" ]; then
+  echo "postprovision: First provision detected — creating client secret for fixed app ($FIXED_CLIENT_ID)..."
+  FIXED_CLIENT_SECRET_VAL=$(az ad app credential reset \
+    --id "$FIXED_CLIENT_ID" \
+    --display-name "mcp-oauth-proxy" \
+    --years 1 \
+    --query password \
+    --output tsv)
+
+  azd env set FIXED_CLIENT_SECRET "$FIXED_CLIENT_SECRET_VAL"
+
+  # Push directly to the staging slot since Bicep already ran with an empty value.
+  az webapp config appsettings set \
+    --name "$WEB_APP_NAME" \
+    --slot staging \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --settings "CLIENT_SECRET=$FIXED_CLIENT_SECRET_VAL" \
+    --output none
+
+  echo "postprovision: CLIENT_SECRET set on staging slot."
+else
+  echo "postprovision: FIXED_CLIENT_SECRET already set (re-provision) — skipping credential creation."
+fi
+
 RESOURCE_GROUP_SUFFIX=${AZURE_RESOURCE_GROUP#rg-}
 REPRO_SERVER_URL="https://${WEB_APP_NAME}.azurewebsites.net"
 FIXED_SERVER_URL="https://${WEB_APP_NAME}-staging.azurewebsites.net"
@@ -48,27 +79,15 @@ EOF
 echo "Wrote $CLIENT_ENV_FILE"
 sed -n '1,999p' "$CLIENT_ENV_FILE"
 
-# Write VS Code MCP config so the server is immediately usable from VS Code.
-# VS Code discovers OAuth from /.well-known endpoints automatically — only the
-# URL is needed. The vscode.dev/redirect URI is already registered in Entra.
+# Write VS Code MCP config — with OAuthProxy, VS Code authenticates directly
+# via the proxy's /auth/* endpoints. No token injection via inputs needed.
 mkdir -p "$ROOT_DIR/.vscode"
 cat > "$VSCODE_MCP_FILE" <<EOF
 {
-  "inputs": [
-    {
-      "id": "fixed_bearer_token",
-      "type": "promptString",
-      "description": "Bearer token for cloud-helper-fixed. Get one with: cd client && uv run python test_client.py fetch-token fixed",
-      "password": true
-    }
-  ],
   "servers": {
     "cloud-helper-fixed": {
       "type": "http",
-      "url": "$FIXED_SERVER_URL/mcp/",
-      "headers": {
-        "Authorization": "Bearer \${input:fixed_bearer_token}"
-      }
+      "url": "$FIXED_SERVER_URL/mcp/"
     }
   }
 }

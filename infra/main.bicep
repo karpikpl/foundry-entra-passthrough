@@ -23,8 +23,17 @@ param location string = resourceGroup().location
 @description('Name of an existing App Service Plan to reuse. Leave empty to create a new B1 plan.')
 param existingPlanName string = ''
 
+@description('Client secret for the fixed Entra app — created by preprovision.sh on re-provision or postprovision.sh on first provision.')
+@secure()
+param fixedClientSecret string = ''
+
 // ── Tenant context derived from the current subscription ─────────────────────
 var tenantId = subscription().tenantId
+
+// ── Shared App Service name — single source of truth for both modules ─────────
+// Lifted here so appRegistrations can derive the OAuthProxy callback URI
+// without creating a circular dependency on the appService module output.
+var webAppName = 'cloud-helper-fastmcp'
 
 // ── Tags applied to all ARM resources ────────────────────────────────────────
 var tags = {
@@ -38,6 +47,9 @@ module appRegs './modules/appRegistrations.bicep' = {
   name: 'appRegistrations-${environmentName}'
   params: {
     environmentName: environmentName
+    // Passed so appRegistrations can add the OAuthProxy callback URI to
+    // fixedApp.web.redirectUris without knowing the slot hostname directly.
+    webAppName: webAppName
   }
 }
 
@@ -47,11 +59,16 @@ module appSvc './modules/appService.bicep' = {
   params: {
     location: location
     tenantId: tenantId
+    webAppName: webAppName
     existingPlanName: existingPlanName
     reproClientId: appRegs.outputs.reproClientId
     reproAudience: appRegs.outputs.reproAudience
     fixedClientId: appRegs.outputs.fixedClientId
     fixedAudience: appRegs.outputs.fixedAudience
+    // Passed through securely — Bicep sets it as a sticky CLIENT_SECRET app
+    // setting on the staging slot. Empty on first provision (postprovision.sh
+    // creates the credential and updates the setting directly via az CLI).
+    fixedClientSecret: fixedClientSecret
     tags: tags
   }
 }

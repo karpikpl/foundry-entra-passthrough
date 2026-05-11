@@ -10,6 +10,9 @@
     },
     "existingPlanName": {
       "value": "${EXISTING_PLAN_NAME}"
+    },
+    "fixedClientSecret": {
+      "value": "${FIXED_CLIENT_SECRET}"
     }
   }
 }

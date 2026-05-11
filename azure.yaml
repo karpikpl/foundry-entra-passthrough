@@ -22,6 +22,11 @@ infra:
   path: ./infra
 
 hooks:
+  preprovision:
+    shell: sh
+    run: ./hooks/preprovision.sh
+    interactive: false
+    continueOnError: false
   postprovision:
     shell: sh
     run: ./hooks/postprovision.sh

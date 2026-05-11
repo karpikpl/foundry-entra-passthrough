@@ -24,6 +24,9 @@ param location string
 @description('Entra tenant ID.')
 param tenantId string
 
+@description('App Service name — single source of truth from main.bicep.')
+param webAppName string
+
 @description('Name of an existing App Service Plan to reuse. Empty = create new S1 plan.')
 param existingPlanName string = ''
 
@@ -39,11 +42,14 @@ param fixedClientId string
 @description('Full audience (api://.../mcp.access) of the fixed app.')
 param fixedAudience string
 
+@description('Client secret for the fixed Entra app registration — used by OAuthProxy to exchange auth codes with Entra. Empty string on first provision; postprovision.sh creates the credential and updates this setting directly.')
+@secure()
+param fixedClientSecret string = ''
+
 @description('Tags to apply to all resources.')
 param tags object = {}
 
 // ── Derived names ─────────────────────────────────────────────────────────────
-var webAppName = 'cloud-helper-fastmcp'
 var stagingSlotName = 'staging'
 
 // ── App Service Plan ──────────────────────────────────────────────────────────
@@ -104,6 +110,7 @@ resource webAppSlotSettings 'Microsoft.Web/sites/config@2022-09-01' = {
   properties: {
     appSettingNames: [
       'CLIENT_ID'
+      'CLIENT_SECRET'
       'AUDIENCE'
       'RESOURCE_HOST'
       'TENANT_ID'
@@ -162,6 +169,9 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
   properties: {
     // Sticky — fixed profile
     CLIENT_ID: fixedClientId
+    // CLIENT_SECRET is set by preprovision.sh (re-provision) or postprovision.sh
+    // (first provision) — empty here means postprovision will populate it via az CLI.
+    CLIENT_SECRET: fixedClientSecret
     AUDIENCE: fixedAudience
     RESOURCE_HOST: '${webAppName}-staging.azurewebsites.net'
     TENANT_ID: tenantId

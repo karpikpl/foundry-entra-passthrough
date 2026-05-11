@@ -32,6 +32,9 @@ extension microsoftGraphV1
 @description('Environment name — disambiguates multiple AZD environments in the same tenant.')
 param environmentName string
 
+@description('App Service name — used to construct the OAuthProxy callback URI for the staging slot.')
+param webAppName string
+
 // ── Deterministic scope GUIDs (stable across deployments in the same env) ────
 // guid() is deterministic for the same inputs — ensures idempotent re-deploys.
 var reproScopeId = guid('cloud-helper-mcp-repro', environmentName, 'mcp.access')
@@ -53,6 +56,14 @@ var webRedirectUris = [
   'https://vscode.dev/redirect'
 ]
 
+// OAuthProxy callback URI — FastMCP's fixed redirect URI that Entra must know
+// about. The proxy accepts DCR requests with dynamic callback ports from MCP
+// clients, but always uses this single URI when redirecting to Entra. After
+// Entra validates the user, it redirects here; the proxy then forwards to the
+// original dynamic client callback. Only the fixed app needs this (the repro
+// app still uses direct Entra auth with public-client redirect URIs).
+var fixedProxyCallbackUri = 'https://${webAppName}-staging.azurewebsites.net/auth/callback'
+
 // ── Repro app registration (H1 bug preserved: localhost only) ─────────────────
 resource reproApp 'Microsoft.Graph/applications@v1.0' = {
   uniqueName: reproName
@@ -66,9 +77,9 @@ resource reproApp 'Microsoft.Graph/applications@v1.0' = {
     ]
   }
 
-  // Web platform — for Foundry and VS Code browser-based clients
+  // Web platform — for Foundry, VS Code browser-based clients, and OAuthProxy callback
   web: {
-    redirectUris: webRedirectUris
+    redirectUris: concat(webRedirectUris, [fixedProxyCallbackUri])
     implicitGrantSettings: {
       enableAccessTokenIssuance: false
       enableIdTokenIssuance: false
