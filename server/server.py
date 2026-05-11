@@ -78,15 +78,19 @@ def _create_mcp() -> FastMCP:
         # We pass it here so the proxy includes it when redirecting to Entra,
         # regardless of what abbreviated scope the MCP client requested.
         #
-        # prompt=consent: forces Entra to show the consent screen so the user
-        # explicitly grants the proxy app access to mcp.access. Without this,
-        # prompt=select_account skips consent UI → token exchange fails with
-        # AADSTS65001. Guest/external (#EXT#) users are not covered by
-        # AllPrincipals admin consent grants and require per-user interactive
-        # consent. Once the user has consented, this can be changed back to
-        # select_account.
+        # Do NOT include offline_access or openid alongside a custom api:// scope.
+        # Entra assigns those OIDC scopes to a different internal SP, creating a
+        # split consent: mcp.access is consented for the fixed app SP, but
+        # offline_access/openid are consented for a separate Microsoft SP.
+        # The token endpoint then rejects with AADSTS65001 because the fixed app
+        # SP's grant is missing offline_access/openid.
+        # The mcp.access access token already carries user identity claims
+        # (oid, upn, tid), so OAuthProxy can identify the user without openid.
+        #
+        # prompt=consent: forces Entra to show the consent screen so guest (#EXT#)
+        # users explicitly grant access — AllPrincipals grants don't cover guests.
         extra_authorize_params={
-            "scope": f"{settings.resolved_audience}/mcp.access offline_access openid",
+            "scope": f"{settings.resolved_audience}/mcp.access",
             "prompt": "consent",
         },
         token_verifier=entra_verifier,
