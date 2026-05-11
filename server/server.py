@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import json
 import logging
+from typing import Any
 
 import uvicorn
 from fastmcp import Context, FastMCP
@@ -15,6 +18,46 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _decode_jwt_payload(token: str) -> dict[str, Any]:
+    """Decode a JWT payload without signature verification.
+
+    Safe to call on tokens that have already been validated — used to
+    extract embedded claims from the FastMCP JWT or the upstream Entra token.
+    """
+    try:
+        payload_b64 = token.split(".")[1]
+        # Add padding so base64 doesn't choke on missing '=' characters.
+        payload_b64 += "=" * (4 - len(payload_b64) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload_b64))
+    except Exception:
+        return {}
+
+
+class EntraOAuthProxy(OAuthProxy):
+    """OAuthProxy subclass that embeds Entra user claims in FastMCP JWTs.
+
+    OAuthProxy's default _extract_upstream_claims returns None — no user
+    info is embedded. By overriding it here we decode the Entra access token
+    (already validated by JWTVerifier) and forward key identity claims so
+    that tool handlers can read them without a separate userinfo call.
+    """
+
+    async def _extract_upstream_claims(
+        self, idp_tokens: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        access_token = idp_tokens.get("access_token", "")
+        claims = _decode_jwt_payload(access_token)
+        if not claims:
+            return None
+        # Return only the claims that are useful to tools — avoid leaking
+        # internal Entra bookkeeping fields into client-visible JWTs.
+        return {
+            k: claims[k]
+            for k in ("oid", "name", "preferred_username", "upn", "tid", "email")
+            if k in claims
+        }
 
 
 def _create_mcp() -> FastMCP:
@@ -58,11 +101,11 @@ def _create_mcp() -> FastMCP:
     entra_verifier = JWTVerifier(
         jwks_uri=settings.jwks_url,
         issuer=settings.issuer,
-        audience=settings.resolved_audience,
+        audience=settings.jwt_audience,
         required_scopes=["mcp.access"],
     )
 
-    auth = OAuthProxy(
+    auth = EntraOAuthProxy(
         # Entra's standard OAuth 2.0 v2.0 endpoints for our tenant.
         upstream_authorization_endpoint=(
             f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/authorize"
@@ -86,12 +129,18 @@ def _create_mcp() -> FastMCP:
         # SP's grant is missing offline_access/openid.
         # The mcp.access access token already carries user identity claims
         # (oid, upn, tid), so OAuthProxy can identify the user without openid.
-        #
-        # prompt=consent: forces Entra to show the consent screen so guest (#EXT#)
-        # users explicitly grant access — AllPrincipals grants don't cover guests.
         extra_authorize_params={
             "scope": f"{settings.resolved_audience}/mcp.access",
-            "prompt": "consent",
+        },
+        # OAuthProxy token exchange bug with Entra:
+        # _prepare_scopes_for_token_exchange() returns the scopes from the
+        # transaction (i.e. what VS Code requested: short "mcp.access").
+        # Entra's token endpoint requires the full api:// URI to match the
+        # consent grant — sending "mcp.access" alone returns AADSTS65001.
+        # extra_token_params is applied via dict.update() AFTER the scope is
+        # set, so this overrides it with the full URI.
+        extra_token_params={
+            "scope": f"{settings.resolved_audience}/mcp.access",
         },
         token_verifier=entra_verifier,
         # base_url tells the proxy what URL to advertise for its own auth
@@ -115,12 +164,34 @@ mcp = _create_mcp()
 
 @mcp.tool(description="Return a hello world message for authenticated callers.")
 def hello(name: str, ctx: Context) -> str:
-    # get_access_token() returns the FastMCP JWT claims for the current request.
-    # client_id holds the subject extracted from the upstream Entra token.
     access_token = get_access_token()
-    subject = access_token.client_id if access_token else "<unknown>"
-    ctx.info(f"hello invoked by {subject}")
-    return f"Hello, {name}! You are authenticated as {subject}."
+    if not access_token:
+        return f"Hello, {name}! (unauthenticated)"
+
+    # upstream_claims are embedded by EntraOAuthProxy._extract_upstream_claims
+    # at token issuance and re-attached to AccessToken.claims by FastMCP at
+    # validation time. Read directly from claims — do NOT decode the JWT manually.
+    upstream = (access_token.claims or {}).get("upstream_claims", {})
+
+    display_name = (
+        upstream.get("name")
+        or upstream.get("preferred_username")
+        or upstream.get("upn")
+        or access_token.client_id
+    )
+    upn = upstream.get("preferred_username") or upstream.get("upn", "")
+    oid = upstream.get("oid", "")
+    tid = upstream.get("tid", "")
+
+    ctx.info(f"hello invoked by {display_name} (oid={oid})")
+    return (
+        f"Hello, {name}! You are authenticated as:\n"
+        f"  Name:    {display_name}\n"
+        f"  UPN:     {upn}\n"
+        f"  OID:     {oid}\n"
+        f"  Tenant:  {tid}\n"
+        f"  Scopes:  {', '.join(access_token.scopes)}"
+    )
 
 
 # http_app() replaces streamable_http_app() in fastmcp 3.x.

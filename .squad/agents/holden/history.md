@@ -9,6 +9,8 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+- **2026-05-11:** Created comprehensive architecture documentation in `docs/architecture.md` covering the entire investigation, fix strategy, and implementation details. Key insights: (1) The original AS-mode design conflicted with how production clients (VS Code, Foundry) acquire tokens. (2) The fix requires three app registrations: proxy client, fixed resource server, and repro for comparison. (3) Claims pass-through via `upstream_claims` is the correct pattern for multi-hop auth. (4) Entra's `aud` field uses GUID format in v2.0 tokens, not the `api://` URI. (5) Scope split occurs when mixing OIDC scopes with custom resource scopes — omit OIDC scopes entirely. (6) Never manually decode JWTs in tools; rely on framework validation middleware.
+
 - **2026-05-08:** The OAuth failure pattern is: Entra login completes successfully (user sees "Sign-in successful!") but the MCP client never POSTs to the server's `/token` endpoint. The connection hangs. This points to a client-side issue, not a server-side one. The server's `/token` endpoint works when tested manually.
 - **2026-05-08:** Top two hypotheses: (1) Redirect URI mismatch — `http://127.0.0.1:<port>` vs `http://localhost` are NOT equivalent per RFC 8252 §8.3, and Entra may redirect to one while the client listens on the other. (2) The MCP client SDK may not implement the token exchange step at all, expecting the host app (VS Code / AI Foundry) to handle it. Both are HIGH confidence.
 - **2026-05-08:** The Entra app registration platform type matters: "Mobile/Desktop" allows dynamic ports on localhost; "Web" requires exact URI match. This needs to be verified by Amos.

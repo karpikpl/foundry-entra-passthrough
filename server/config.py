@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     client_id: str = Field(alias="CLIENT_ID")
     client_secret: str = Field(alias="CLIENT_SECRET")
     audience: str | None = Field(default=None, alias="AUDIENCE")
+    # RESOURCE_APP_ID: the fixed app's GUID (not the api:// URI).
+    # Entra always sets aud to the GUID in access tokens for custom APIs,
+    # even when requestedAccessTokenVersion: 2 and an identifier URI exist.
+    resource_app_id: str | None = Field(default=None, alias="RESOURCE_APP_ID")
     resource_host: str = Field(alias="RESOURCE_HOST")
     port: int = Field(default=8000, alias="PORT")
 
@@ -22,6 +26,18 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def jwt_audience(self) -> str | list[str]:
+        """Audience for JWTVerifier — the fixed app's GUID if known, else the URI.
+
+        Entra always uses the app's GUID (not the api:// identifier URI) as the
+        aud claim in access tokens for custom APIs, even with v2 tokens. Accept
+        both so the server works regardless of the token version Entra issues.
+        """
+        if self.resource_app_id:
+            return [self.resource_app_id, self.resolved_audience]
+        return self.resolved_audience
 
     @property
     def resolved_audience(self) -> str:

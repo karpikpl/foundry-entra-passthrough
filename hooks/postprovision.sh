@@ -91,8 +91,8 @@ az rest --method POST \
   || echo "postprovision: Consent grant already exists or non-fatal error — continuing."
 
 RESOURCE_GROUP_SUFFIX=${AZURE_RESOURCE_GROUP#rg-}
-REPRO_SERVER_URL="https://${WEB_APP_NAME}.azurewebsites.net"
-FIXED_SERVER_URL="https://${WEB_APP_NAME}-staging.azurewebsites.net"
+REPRO_SERVER_URL="https://${WEB_APP_NAME}.azurewebsites.net/mcp"
+FIXED_SERVER_URL="https://${WEB_APP_NAME}-staging.azurewebsites.net/mcp"
 REPRO_AUDIENCE="api://cloud-helper-mcp-repro-${RESOURCE_GROUP_SUFFIX}"
 FIXED_AUDIENCE="api://cloud-helper-mcp-fixed-${RESOURCE_GROUP_SUFFIX}"
 
@@ -119,7 +119,7 @@ cat > "$VSCODE_MCP_FILE" <<EOF
   "servers": {
     "cloud-helper-fixed": {
       "type": "http",
-      "url": "$FIXED_SERVER_URL/mcp"
+      "url": "$FIXED_SERVER_URL"
     }
   }
 }

@@ -64,6 +64,7 @@ module appSvc './modules/appService.bicep' = {
     reproClientId: appRegs.outputs.reproClientId
     reproAudience: appRegs.outputs.reproAudience
     fixedAudience: appRegs.outputs.fixedAudience
+    fixedAppId: appRegs.outputs.fixedClientId
     proxyClientId: appRegs.outputs.proxyClientId
     // Passed through securely — Bicep sets it as a sticky CLIENT_SECRET app
     // setting on the staging slot. Empty on first provision (postprovision.sh

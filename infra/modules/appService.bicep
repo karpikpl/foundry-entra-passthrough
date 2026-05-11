@@ -39,7 +39,10 @@ param reproAudience string
 @description('Client ID of the proxy app registration (OAuthProxy confidential client).')
 param proxyClientId string
 
-@description('Full audience (api://.../mcp.access) of the fixed app — JWT aud claim.')
+@description('App ID (GUID) of the fixed app — used as JWT aud claim in Entra access tokens (Entra always uses the GUID, not the api:// URI, as aud for custom APIs).')
+param fixedAppId string
+
+@description('Full audience URI (api://...) of the fixed app — used for scope construction only, NOT for JWT aud validation.')
 param fixedAudience string
 
 @description('Client secret for the proxy Entra app registration — used by OAuthProxy to exchange auth codes with Entra. Empty string on first provision; postprovision.sh creates the credential and updates this setting directly.')
@@ -112,6 +115,7 @@ resource webAppSlotSettings 'Microsoft.Web/sites/config@2022-09-01' = {
       'CLIENT_ID'
       'CLIENT_SECRET'
       'AUDIENCE'
+      'RESOURCE_APP_ID'
       'RESOURCE_HOST'
       'TENANT_ID'
       'AZURE_TENANT_ID'
@@ -173,6 +177,10 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
     // (first provision) — empty here means postprovision will populate it via az CLI.
     CLIENT_SECRET: proxyClientSecret
     AUDIENCE: fixedAudience
+    // RESOURCE_APP_ID: the fixed app's GUID. Entra always uses the GUID (not the api://
+    // URI) as the aud claim in access tokens for custom APIs, even with v2 tokens.
+    // JWTVerifier must validate against this GUID, not the identifier URI.
+    RESOURCE_APP_ID: fixedAppId
     RESOURCE_HOST: '${webAppName}-staging.azurewebsites.net'
     TENANT_ID: tenantId
     AZURE_TENANT_ID: tenantId

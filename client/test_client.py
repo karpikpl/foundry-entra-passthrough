@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # fastmcp's Client handles MCP protocol; OAuth handles the full OAuth 2.1
 # PKCE flow including DCR, browser redirect, callback, and token storage.
 # This replaces ~300 lines of manual PKCE implementation that was here before.
+import webbrowser
+
 from fastmcp import Client
 from fastmcp.client.auth import BearerAuth, OAuth
 
@@ -46,30 +48,62 @@ def get_config(mode: str) -> dict[str, Any]:
     raise ValueError(f"Unknown mode: {mode}")
 
 
+class _OAuth(OAuth):
+    """OAuth with a terminal-friendly URL display.
+
+    The base class logs the auth URL via logger.info(), which wraps at the
+    terminal column width and makes the URL impossible to click or copy.
+    Override redirect_handler to print it on a single clearly-delimited line.
+    """
+
+    async def redirect_handler(self, authorization_url: str) -> None:
+        click.echo("\n" + "─" * 60)
+        click.echo("Open this URL to authenticate:")
+        click.echo(authorization_url)
+        click.echo("─" * 60 + "\n")
+        webbrowser.open(authorization_url)
+
+
 def run_flow(mode: str, server_url: str, audience: str, open_browser: bool) -> None:
     # OAuth() discovers /.well-known/oauth-protected-resource from server_url,
     # finds our OAuthProxy's /auth/* endpoints (NOT login.microsoftonline.com),
     # does DCR + PKCE, opens a browser, handles the callback, and stores the token.
     # The proxy then exchanges with Entra internally and issues a FastMCP JWT.
-    oauth = OAuth(
-        # Request the full Entra scope URI so the proxy passes it upstream correctly.
-        scopes=[f"{audience}/mcp.access", "openid", "offline_access"],
-        client_name="MCP OAuth Test Client",
-    )
-
+    #
+    # Only request the custom mcp.access scope — do NOT include openid/offline_access
+    # alongside a custom api:// scope. Entra assigns those OIDC scopes to a different
+    # internal SP, creating split consent that breaks the token exchange.
     config = get_config(mode)
 
-    async def _run() -> list:
+    # The repro server uses direct Entra (RS-mode) with no OAuthProxy, so there is no
+    # /auth/register endpoint — Entra does not support Dynamic Client Registration.
+    # Pass the pre-registered client_id so FastMCP skips DCR entirely.
+    oauth = _OAuth(
+        scopes=[f"{audience}/mcp.access"],
+        client_name="MCP OAuth Test Client",
+        client_id=config.get("client_id"),
+    )
+
+    async def _run() -> tuple[list, str | None]:
         async with Client(server_url, auth=oauth) as client:
-            return await client.list_tools()
+            tools = await client.list_tools()
+            result = None
+            if any(t.name == "hello" for t in tools):
+                call_result = await client.call_tool("hello", {"name": "World"})
+                result = call_result.content[0].text if call_result.content else None
+            return tools, result
 
     try:
-        tools = anyio.run(_run)
+        tools, tool_result = anyio.run(_run)
         tool_names = [t.name for t in tools]
         if config["expect_success"]:
             click.echo(
                 f"✅ FIX CONFIRMED: tools/list returned {len(tools)} tool(s): {tool_names}"
             )
+            if tool_result:
+                click.echo("\n--- Tool result (hello) ---")
+                click.echo(tool_result)
+                click.echo("---------------------------")
         else:
             click.echo(
                 f"⚠️  REPRO server unexpectedly succeeded: {tool_names}"
