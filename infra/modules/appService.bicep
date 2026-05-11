@@ -1,5 +1,5 @@
 // infra/modules/appService.bicep
-// Updated: 2026-05-11 for direct-Entra EasyAuth + PRM.
+// Updated: 2026-05-11 for direct-Entra FastMCP auth.
 //
 // Provisions the cloud-helper-fastmcp App Service with two slots:
 //
@@ -40,7 +40,6 @@ param fixedAudience string
 param tags object = {}
 
 var stagingSlotName = 'staging'
-var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
 var reproScope = '${reproAudience}/mcp.access'
 var fixedScope = '${fixedAudience}/mcp.access'
 
@@ -124,55 +123,6 @@ resource webAppStickyProd 'Microsoft.Web/sites/config@2022-09-01' = {
   }
 }
 
-resource webAppAuth 'Microsoft.Web/sites/config@2022-09-01' = {
-  name: 'authsettingsV2'
-  parent: webApp
-  properties: {
-    platform: {
-      enabled: true
-      runtimeVersion: '~2'
-    }
-    globalValidation: {
-      requireAuthentication: true
-      unauthenticatedClientAction: 'Return401'
-    }
-    httpSettings: {
-      requireHttps: true
-    }
-    login: {
-      tokenStore: {
-        enabled: true
-      }
-    }
-    identityProviders: {
-      azureActiveDirectory: {
-        enabled: true
-        registration: {
-          clientId: reproClientId
-          openIdIssuer: 'https://login.microsoftonline.com/${tenantId}/v2.0'
-        }
-        validation: {
-          allowedAudiences: [
-            reproClientId
-            reproAudience
-          ]
-          // allowedApplications must be non-empty; [] is treated as "deny all" by EasyAuth.
-          defaultAuthorizationPolicy: {
-            allowedApplications: [
-              vscodeClientId
-            ]
-          }
-          jwtClaimChecks: {
-            allowedClientApplications: [
-              vscodeClientId
-            ]
-          }
-        }
-      }
-    }
-  }
-}
-
 resource stagingSlot 'Microsoft.Web/sites/slots@2022-09-01' = {
   name: stagingSlotName
   parent: webApp
@@ -211,55 +161,6 @@ resource stagingSlotSettings 'Microsoft.Web/sites/slots/config@2022-09-01' = {
     SCM_DO_BUILD_DURING_DEPLOYMENT: 'true'
     WEBSITES_PORT: '8000'
     PYTHON_ENABLE_GUNICORN_MULTIWORKERS: 'true'
-  }
-}
-
-resource stagingSlotAuth 'Microsoft.Web/sites/slots/config@2022-09-01' = {
-  name: 'authsettingsV2'
-  parent: stagingSlot
-  properties: {
-    platform: {
-      enabled: true
-      runtimeVersion: '~2'
-    }
-    globalValidation: {
-      requireAuthentication: true
-      unauthenticatedClientAction: 'Return401'
-    }
-    httpSettings: {
-      requireHttps: true
-    }
-    login: {
-      tokenStore: {
-        enabled: true
-      }
-    }
-    identityProviders: {
-      azureActiveDirectory: {
-        enabled: true
-        registration: {
-          clientId: fixedAppId
-          openIdIssuer: 'https://login.microsoftonline.com/${tenantId}/v2.0'
-        }
-        validation: {
-          allowedAudiences: [
-            fixedAppId
-            fixedAudience
-          ]
-          // allowedApplications must be non-empty; [] is treated as "deny all" by EasyAuth.
-          defaultAuthorizationPolicy: {
-            allowedApplications: [
-              vscodeClientId
-            ]
-          }
-          jwtClaimChecks: {
-            allowedClientApplications: [
-              vscodeClientId
-            ]
-          }
-        }
-      }
-    }
   }
 }
 
