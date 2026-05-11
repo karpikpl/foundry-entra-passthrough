@@ -156,6 +156,12 @@ resource webAppAuth 'Microsoft.Web/sites/config@2022-09-01' = {
             reproClientId
             reproAudience
           ]
+          // allowedApplications must be non-empty; [] is treated as "deny all" by EasyAuth.
+          defaultAuthorizationPolicy: {
+            allowedApplications: [
+              vscodeClientId
+            ]
+          }
           jwtClaimChecks: {
             allowedClientApplications: [
               vscodeClientId
@@ -240,6 +246,12 @@ resource stagingSlotAuth 'Microsoft.Web/sites/slots/config@2022-09-01' = {
             fixedAppId
             fixedAudience
           ]
+          // allowedApplications must be non-empty; [] is treated as "deny all" by EasyAuth.
+          defaultAuthorizationPolicy: {
+            allowedApplications: [
+              vscodeClientId
+            ]
+          }
           jwtClaimChecks: {
             allowedClientApplications: [
               vscodeClientId
