@@ -20,3 +20,45 @@ services:
 infra:
   provider: bicep
   path: ./infra
+
+hooks:
+  postdeploy:
+    shell: sh
+    run: |
+      echo ""
+      echo "✅ Provisioning complete!"
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔗  MCP Server Endpoints"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "  🟢  MCP Server (fixed OAuth): https://${FIXED_SLOT_HOSTNAME}/mcp"
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🤖  Configure Azure AI Foundry Agent — MCP Tool"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "  In Foundry → Your Agent → Add Tool → Model Context Protocol"
+      echo "  Select: OAuth Identity Passthrough"
+      echo ""
+      echo "  Field                   Value"
+      echo "  ─────────────────────   ──────────────────────────────────────────────────────────"
+      echo "  Remote MCP endpoint   : https://${FIXED_SLOT_HOSTNAME}/mcp"
+      echo "  Client ID             : ${FIXED_CLIENT_ID}"
+      echo "  Client secret         : (leave blank)"
+      echo "  Auth URL              : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize"
+      echo "  Token URL             : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token"
+      echo "  Refresh URL           : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token"
+      echo "  Scopes                : ${FIXED_AUDIENCE}/.default"
+      echo ""
+      echo "❗❗❗ Remember to register the Foundry redirect URI in the Azure app registration in 'Mobile and desktop applications' section for the Fixed slot (MCP Tool) to enable OAuth Identity Passthrough."
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🧪  Quick VS Code test (mcp.json snippet)"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo '  "cloud-helper-fixed": {'
+      echo '    "type": "http",'
+      echo "    \"url\": \"https://${FIXED_SLOT_HOSTNAME}/mcp\""
+      echo '  }'
+      echo ""

@@ -1,11 +1,11 @@
 // infra/main.bicep — AZD orchestrator for cloud-helper-fastmcp
-// Updated: 2026-05-11 for direct-Entra resource-server mode.
+// Updated: 2026-05-12 simplified to single production slot.
 //
 // Calls two modules:
 //   1. appRegistrations — creates the repro + fixed Entra resource-server apps
 //      and their tenant-local service principals via the Microsoft.Graph extension.
-//   2. appService — creates the App Service with production (repro) and
-//      staging (fixed) slots wired to the matching app registrations.
+//   2. appService — creates the App Service (B1, single production slot)
+//      wired to the fixed app registration.
 
 targetScope = 'resourceGroup'
 
@@ -15,7 +15,7 @@ param environmentName string
 @description('Azure region for App Service resources. Defaults to resource group location.')
 param location string = resourceGroup().location
 
-@description('Name of an existing App Service Plan to reuse. Leave empty to create a new S1 plan.')
+@description('Name of an existing App Service Plan to reuse. Leave empty to create a new B1 plan.')
 param existingPlanName string = ''
 
 @description('App Service name to deploy. Set per environment so parallel azd deployments do not collide.')
@@ -29,6 +29,7 @@ var tags = {
   project: 'cloud-helper-fastmcp'
   environment: environmentName
   managedBy: 'azd'
+  'hidden-title': 'MCP OAuth Demo'
 }
 
 // ── App Registrations (Entra, via MS Graph Bicep extension) ──────────────────
@@ -39,7 +40,7 @@ module appRegs './modules/appRegistrations.bicep' = {
   }
 }
 
-// ── App Service + slots ───────────────────────────────────────────────────────
+// ── App Service ───────────────────────────────────────────────────────────────
 module appSvc './modules/appService.bicep' = {
   name: 'appService-${environmentName}'
   params: {
@@ -47,8 +48,6 @@ module appSvc './modules/appService.bicep' = {
     tenantId: tenantId
     webAppName: webAppName
     existingPlanName: existingPlanName
-    reproClientId: appRegs.outputs.reproClientId
-    reproAudience: appRegs.outputs.reproAudience
     fixedAudience: appRegs.outputs.fixedAudience
     fixedAppId: appRegs.outputs.fixedClientId
     tags: tags
@@ -64,3 +63,4 @@ output REPRO_CLIENT_ID string = appRegs.outputs.reproClientId
 output REPRO_AUDIENCE string = appRegs.outputs.reproAudience
 output FIXED_CLIENT_ID string = appRegs.outputs.fixedClientId
 output FIXED_AUDIENCE string = appRegs.outputs.fixedAudience
+output FIXED_SLOT_HOSTNAME string = appSvc.outputs.webAppHostname
