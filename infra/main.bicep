@@ -19,7 +19,7 @@ param location string = resourceGroup().location
 param existingPlanName string = ''
 
 @description('App Service name to deploy. Set per environment so parallel azd deployments do not collide.')
-param webAppName string = 'cloud-helper-fastmcp'
+param webAppName string
 
 // ── Tenant context derived from the current subscription ─────────────────────
 var tenantId = subscription().tenantId

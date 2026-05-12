@@ -30,7 +30,7 @@ var reproIdentifierUri = 'api://${reproName}'
 var fixedIdentifierUri = 'api://${fixedName}'
 
 var webRedirectUris = [
-  'https://foundry.azure.com/'
+  'https://ai.azure.com/'
   'https://vscode.dev/redirect'
 ]
 
