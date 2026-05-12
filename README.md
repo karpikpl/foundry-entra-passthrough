@@ -18,20 +18,19 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "cloud-helper": {
       "type": "http",
-      "url": "https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp"
+      "url": "https://<your-app>.azurewebsites.net/mcp"
     }
   }
 }
 ```
 
+Replace `<your-app>` with your app's hostname. After deploying with `azd up`, the endpoint URL is printed by the postprovision hook.
+
 That's all. VS Code auto-discovers authentication via the server's Protected Resource Metadata endpoint.
 
 ## Live Demo
 
-| Instance | URL | Status |
-|----------|-----|--------|
-| Fixed (Staging) | `https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp` | ✅ Works |
-| Repro (Production) | `https://cloud-helper-fastmcp-direct.azurewebsites.net/mcp` | ❌ Shows the bug |
+After running `azd up`, your MCP endpoint is printed by the postprovision hook. Use that URL in your VS Code configuration above.
 
 ## The Key: Pre-Authorize VS Code
 
