@@ -13,11 +13,11 @@ This client validates the direct-Entra pattern end-to-end:
 
 The client now defaults to the fixed staging slot:
 
-- `https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp` ← fixed
+- `https://<your-app>.azurewebsites.net/mcp` ← fixed
 
 Use `--url` to point at another slot, for example the repro slot:
 
-- `https://cloud-helper-fastmcp-direct.azurewebsites.net/mcp` ← repro
+- `https://<your-app>.azurewebsites.net/mcp` ← repro
 
 ## How to run
 
@@ -30,7 +30,7 @@ Optional overrides:
 
 ```bash
 uv run test_client.py direct \
-  --url https://cloud-helper-fastmcp-direct.azurewebsites.net/mcp \
+  --url https://<your-app>.azurewebsites.net/mcp \
   --client-id <pre-registered-public-client-id>
 ```
 

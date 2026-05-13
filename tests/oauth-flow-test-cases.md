@@ -1,6 +1,6 @@
 # OAuth PKCE Flow — Test Cases
 
-**Project:** mcp-oauth (Azure Web App: `cloud-helper-mcp`)  
+**Project:** mcp-oauth (Azure Web App: `<your-app>`)  
 **Author:** Drummer (Tester / QA)  
 **Created:** 2026-05-08T17:43:37Z  
 **Status:** Ready for execution — Actual results and Pass/Fail to be filled during test run
@@ -10,7 +10,7 @@
 ## Environment Setup
 
 ```
-MCP_SERVER_BASE_URL=https://cloud-helper-mcp.azurewebsites.net   # or localhost for local testing
+MCP_SERVER_BASE_URL=https://<your-app>.azurewebsites.net   # or localhost for local testing
 WELL_KNOWN_URL=$MCP_SERVER_BASE_URL/.well-known/oauth-authorization-server
 REGISTER_URL=$MCP_SERVER_BASE_URL/register
 TOKEN_URL=$MCP_SERVER_BASE_URL/token
@@ -104,7 +104,7 @@ CODE_CHALLENGE="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 **Priority:** P0 — **Must reproduce before any fix is attempted**
 
 ### Preconditions
-- MCP server deployed as `cloud-helper-mcp` (Azure Web App) with OAuth PKCE enabled
+- MCP server deployed as `<your-app>` (Azure Web App) with OAuth PKCE enabled
 - VS Code with MCP extension OR Azure AI Foundry agent configured to connect to the MCP server
 - Entra login can be completed in browser
 - Server logs accessible (App Service log stream or local stdout)
@@ -114,13 +114,13 @@ CODE_CHALLENGE="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 1. **Tail server logs** (open a separate terminal)
    ```bash
    # Azure App Service log stream
-   az webapp log tail --name cloud-helper-mcp --resource-group rg-cloud-helper-mcp
+   az webapp log tail --name <your-app> --resource-group <your-resource-group>
    # OR for local: watch server stdout
    ```
 
 2. **Connect client to MCP server**  
    - VS Code: Add MCP server entry pointing to `$MCP_SERVER_BASE_URL`  
-   - OR: Trigger AI Foundry agent that targets `cloud-helper-mcp`
+   - OR: Trigger AI Foundry agent that targets your MCP server
 
 3. **Observe the OAuth flow initiation**
    - Confirm `GET /.well-known/oauth-authorization-server` appears in logs → ✅
@@ -468,7 +468,7 @@ VS Code MCP connection status shows "Connected". `POST /token` appears in server
 
 ### Preconditions
 - Fix applied and deployed
-- AI Foundry workspace `foundry-kvmorale` (RG: `kvmorale_Apr-16-2026`, subscription: `hosting-ai-sandbox`) configured to connect to `cloud-helper-mcp`
+- AI Foundry workspace `<your-foundry-workspace>` (RG: `<your-resource-group>`, subscription: `<your-subscription-name>`) configured to connect to your MCP server
 - Entra credentials available
 
 ### Steps

@@ -18,7 +18,7 @@ from fastmcp.client.auth import BearerAuth, OAuth
 ENV_FILE = Path(__file__).with_name(".env")
 load_dotenv(ENV_FILE)
 
-DEFAULT_FIXED_URL = "https://cloud-helper-fastmcp-direct-staging.azurewebsites.net/mcp"
+DEFAULT_FIXED_URL = "https://<your-app>.azurewebsites.net/mcp"
 VSCODE_CLIENT_ID = "aebc6443-996d-45c2-90f0-388ff96faa56"
 HELLO_TOOL_CANDIDATES = ("hello_world", "hello")
 

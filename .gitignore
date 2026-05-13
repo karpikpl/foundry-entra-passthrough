@@ -22,3 +22,4 @@ server/.env
 # Naomi debug artifacts
 .azure-debug*/
 server/__pycache__/
+.squad/

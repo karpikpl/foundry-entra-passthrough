@@ -204,14 +204,14 @@ Achieved successful `azd up` deployment with all infrastructure corrections appl
 4. Deployed to staging: `AZD_DEPLOY_SERVER_SLOT_NAME=staging azd deploy server -e mcp-auth-test-direct --no-prompt`
 5. Set `AZD_DEPLOY_SERVER_SLOT_NAME=production` in AZD environment for future defaults
 
-**Smoke Tests — Production** (`https://cloud-helper-fastmcp-direct.azurewebsites.net`)
+**Smoke Tests — Production** (`https://<your-app>.azurewebsites.net`)
 - `GET /.well-known/oauth-protected-resource/mcp` → `200`
 - `POST /mcp` without token → `401`
 - `GET /` → `200`
 - `GET /health` → `200`
 - PRM scope: `api://cloud-helper-mcp-repro-mcp-auth-test-direct/mcp.access`
 
-**Smoke Tests — Staging** (`https://cloud-helper-fastmcp-direct-staging.azurewebsites.net`)
+**Smoke Tests — Staging** (`https://<your-app>.azurewebsites.net`)
 - `GET /.well-known/oauth-protected-resource/mcp` → `200`
 - `POST /mcp` without token → `401`
 - PRM scope: `api://cloud-helper-mcp-fixed-mcp-auth-test-direct/mcp.access`
@@ -247,10 +247,10 @@ End-to-end FastMCP-native auth smoke tests confirm that the direct-Entra pattern
 - Test client correctly starts Entra `/authorize` flow and localhost callback listener (FastMCP native, not EasyAuth)
 
 **Production URLs:**
-- Base: `https://cloud-helper-fastmcp-direct.azurewebsites.net`
-- Staging: `https://cloud-helper-fastmcp-direct-staging.azurewebsites.net`
+- Base: `https://<your-app>.azurewebsites.net`
+- Staging: `https://<your-app>-staging.azurewebsites.net`
 
-**Tenant:** `c29d6c2b-f765-41b3-b2a2-971a14239dfd`
+**Tenant:** `<your-tenant-id>`
 
 ---
 

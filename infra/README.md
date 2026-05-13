@@ -14,7 +14,7 @@ This project uses **Azure Developer CLI (AZD)** + **Bicep** to provision:
 | Staging slot | `infra/modules/appService.bicep` |
 | App Service Plan (S1, reused or new) | `infra/modules/appService.bicep` |
 
-### Slot assignment (LOCKED — Piotr directive 2026-05-09)
+### Slot assignment (LOCKED — project directive 2026-05-09)
 
 | Slot | App Registration | Redirect URIs |
 |---|---|---|
@@ -75,11 +75,11 @@ Use a separate azd environment + resource group so the direct-Entra rollout stay
 
 ```bash
 azd env new mcp-auth-test-direct
-azd env set AZURE_SUBSCRIPTION_ID 0721e282-2773-4021-af16-e00641ed5e36
+azd env set AZURE_SUBSCRIPTION_ID <your-subscription-id>
 azd env set AZURE_LOCATION eastus
 azd env set AZURE_RESOURCE_GROUP rg-mcp-auth-test-direct
-azd env set AZURE_TENANT_ID c29d6c2b-f765-41b3-b2a2-971a14239dfd
-azd env set WEB_APP_NAME cloud-helper-fastmcp-direct
+azd env set AZURE_TENANT_ID <your-tenant-id>
+azd env set WEB_APP_NAME <your-app-name>
 azd env set EXISTING_PLAN_NAME ""
 ```
 
@@ -91,7 +91,7 @@ What changes automatically in the new environment:
 
 Manual steps before `azd up`:
 - Confirm the chosen `WEB_APP_NAME` is globally unique.
-- Make sure your Azure login is pointed at subscription `0721e282-2773-4021-af16-e00641ed5e36`.
+- Make sure your Azure login is pointed at subscription `<your-subscription-id>`.
 - Do **not** put any client secrets in the azd env; this deployment path is direct-Entra and should stay secret-free.
 
 Manual steps after `azd up`:

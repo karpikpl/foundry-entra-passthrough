@@ -5,8 +5,8 @@
 An MCP server implements the **OAuth 2.0 `authorization_code` + PKCE flow** (per MCP spec). AI agents (Azure AI Foundry) and VS Code connect to it. The OAuth flow begins correctly — users authenticate with Microsoft Entra in the browser — but **the token exchange never completes**: the client never POSTs to the `/token` endpoint after receiving the authorization code, leaving the connection hanging.
 
 **Azure Resources:**
-- MCP server: `cloud-helper-mcp` (Web App) — Subscription: *Cloud Brokers - ASC Testing*, RG: `rg-cloud-helper-mcp`
-- AI Foundry: `foundry-kvmorale` — Subscription: *hosting-ai-sandbox*, RG: `kvmorale_Apr-16-2026`
+- MCP server: `cloud-helper-mcp` (Web App) — Subscription: *<your-subscription-name>*, RG: `<your-resource-group>`
+- AI Foundry: `<your-foundry-workspace>` — Subscription: *<your-subscription-name>*, RG: `<your-resource-group>`
 
 ## Steps to Reproduce
 
