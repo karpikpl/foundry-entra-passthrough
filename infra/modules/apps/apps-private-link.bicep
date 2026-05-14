@@ -61,9 +61,12 @@ module privateEndpoints '../networking/private-endpoint.bicep' = [
   }
 ]
 
-// ── Foundry RemoteTool connections — Entra Identity Passthrough ───────────────
-// authType 'AAD' + audience/clientId metadata = Foundry forwards the calling
-// user's Entra access-token (scoped to `audience`) to the MCP server on each call.
+// ── Foundry RemoteTool connections — OAuth2 (Entra) ──────────────────────────
+// authType 'OAuth2' triggers Foundry to perform the OAuth2 authorization code
+// flow on behalf of the user, acquiring a token scoped to `audience/mcp.access`.
+var tenantId = tenant().tenantId
+var loginEndpoint = environment().authentication.loginEndpoint
+
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
   name: aiFoundryName
 }
@@ -75,12 +78,14 @@ resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2025-0
     properties: {
       category: 'RemoteTool'
       target: api.uri
-      authType: 'AAD'
+      authType: 'OAuth2'
       isSharedToAll: true
+      authorizationUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/authorize'
+      tokenUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+      refreshUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+      scopes: ['${api.audience}/mcp.access']
       metadata: {
         type: 'custom_MCP'
-        audience: api.audience
-        clientId: api.clientId
       }
     }
   }
