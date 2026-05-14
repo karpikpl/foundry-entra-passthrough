@@ -61,9 +61,11 @@ module privateEndpoints '../networking/private-endpoint.bicep' = [
   }
 ]
 
-// ── Foundry RemoteTool connections — Entra User Token Passthrough ─────────────
-// authType 'UserEntraToken' = Foundry forwards the calling user's Entra token
-// (scoped to audience) to the MCP server on each call. No client secret needed.
+// ── Foundry RemoteTool connections — OAuth2 (Entra) ──────────────────────────
+// authType 'OAuth2' with clientId triggers the PKCE/delegated auth flow.
+// Foundry acquires a token scoped to audience/mcp.access on behalf of the user.
+var loginEndpoint = environment().authentication.loginEndpoint
+var tenantId = tenant().tenantId
 
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
   name: aiFoundryName
@@ -76,8 +78,15 @@ resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2025-0
     properties: {
       category: 'RemoteTool'
       target: api.uri
-      authType: 'UserEntraToken'
+      authType: 'OAuth2'
       isSharedToAll: true
+      authorizationUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/authorize'
+      tokenUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+      refreshUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+      scopes: ['${api.audience}/mcp.access']
+      credentials: {
+        clientId: api.clientId
+      }
       metadata: {
         type: 'custom_MCP'
         audience: api.audience
