@@ -66,6 +66,18 @@ def _create_mcp() -> FastMCP:
 mcp = _create_mcp()
 
 
+@mcp.tool(description="Return all JWT claims for the authenticated caller.")
+def whoami(ctx: Context) -> dict:
+    access_token = get_access_token()
+    claims = dict(access_token.claims) if access_token else {}
+    ctx.info(f"whoami invoked (oid={claims.get('oid', '')})")
+    return {
+        "claims": claims,
+        "scopes": list(access_token.scopes) if access_token else [],
+        "client_id": access_token.client_id if access_token else None,
+    }
+
+
 @mcp.tool(description="Return a hello world message for authenticated callers.")
 def hello(name: str, ctx: Context) -> str:
     access_token = get_access_token()

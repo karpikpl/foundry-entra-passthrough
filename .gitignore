@@ -10,7 +10,6 @@
 # ARM JSON build artifacts (compiled from Bicep)
 infra/*.json
 infra/**/*.json
-!infra/main.parameters.json
 
 # Local client/server environments generated from AZD outputs or local setup
 client/.env
