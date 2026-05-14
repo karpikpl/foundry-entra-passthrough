@@ -59,6 +59,10 @@ module webApp 'br/public:avm/res/web/site:0.22.0' = {
     kind: 'app,linux'
     serverFarmResourceId: planId
     httpsOnly: true
+    // Keep public network access on so AZD/Kudu can zip-deploy.
+    // The private endpoint gives Foundry a private path; it does not need
+    // the public endpoint closed for security in this setup.
+    publicNetworkAccess: 'Enabled'
     managedIdentities: { systemAssigned: true }
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.12'
