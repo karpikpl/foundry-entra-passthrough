@@ -11,8 +11,11 @@ param location string
 @description('Entra tenant ID.')
 param tenantId string
 
-@description('App Service name — single source of truth from main.bicep.')
+@description('App Service name — derived from resource token in main.bicep.')
 param webAppName string
+
+@description('Resource token for naming the App Service Plan uniquely.')
+param resourceToken string
 
 @description('Name of an existing App Service Plan to reuse. Empty = create a new B1 Linux plan.')
 param existingPlanName string = ''
@@ -31,7 +34,7 @@ param peSubnetResourceId string = ''
 
 // ── App Service Plan ──────────────────────────────────────────────────────────
 
-var planName = 'asp-${webAppName}'
+var planName = 'asp-${resourceToken}'
 
 resource existingPlan 'Microsoft.Web/serverfarms@2023-12-01' existing = if (!empty(existingPlanName)) {
   name: existingPlanName

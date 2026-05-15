@@ -23,9 +23,6 @@ param location string = resourceGroup().location
 @description('Name of an existing App Service Plan to reuse. Leave empty to create a new B1 plan.')
 param existingPlanName string = ''
 
-@description('App Service name to deploy. Set per environment so parallel azd deployments do not collide.')
-param webAppName string
-
 @description('Public network access on the AI Foundry account.')
 @allowed(['Enabled', 'Disabled'])
 param foundryPublicNetworkAccess string = 'Enabled'
@@ -42,6 +39,9 @@ param chatDeploymentCapacity int = 20
 // ── Derived ───────────────────────────────────────────────────────────────────
 var tenantId = subscription().tenantId
 var resourceToken = toLower(uniqueString(resourceGroup().id, location))
+
+// App Service name derived from resource token — globally unique per environment.
+var webAppName = 'app-${resourceToken}'
 
 var tags = {
   project: 'cloud-helper-fastmcp'
@@ -158,6 +158,7 @@ module appSvc './modules/appService.bicep' = {
     location: location
     tenantId: tenantId
     webAppName: webAppName
+    resourceToken: resourceToken
     existingPlanName: existingPlanName
     audience: appRegs.outputs.audience
     appId: appRegs.outputs.clientId
@@ -196,8 +197,9 @@ output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
 output WEB_APP_NAME string = appSvc.outputs.webAppName
 output WEB_APP_HOSTNAME string = appSvc.outputs.webAppHostname
-output APP_CLIENT_ID string = appRegs.outputs.clientId
-output APP_AUDIENCE string = appRegs.outputs.audience
+output ENTRA_APP_CLIENT_ID string = appRegs.outputs.clientId
+output ENTRA_APP_AUDIENCE string = appRegs.outputs.audience
+output ENTRA_APP_SCOPE string = appRegs.outputs.scope
 output APP_SLOT_HOSTNAME string = appSvc.outputs.webAppHostname
 output FOUNDRY_NAME string = foundry.outputs.FOUNDRY_NAME
 output FOUNDRY_ENDPOINT string = foundry.outputs.FOUNDRY_ENDPOINT
