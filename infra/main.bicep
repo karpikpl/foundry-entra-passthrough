@@ -41,7 +41,7 @@ var tenantId = subscription().tenantId
 var resourceToken = toLower(uniqueString(resourceGroup().id, location))
 
 // App Service name derived from resource token — globally unique per environment.
-var webAppName = 'app-${resourceToken}'
+var webAppName = 'cloud-helper-mcp-${resourceToken}'
 
 var tags = {
   project: 'cloud-helper-fastmcp'
