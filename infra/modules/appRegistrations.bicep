@@ -96,3 +96,6 @@ output audience string = identifierUri
 
 @description('Application ID URI for the app.')
 output identifierUri string = identifierUri
+
+@description('Scope string for requesting tokens to call the MCP server.')
+output scope string = '${identifierUri}/mcp.access'
