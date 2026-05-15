@@ -62,36 +62,37 @@ module privateEndpoints '../networking/private-endpoint.bicep' = [
 ]
 
 // ── Foundry RemoteTool connections — OAuth2 (Entra) ──────────────────────────
+// NOTE: Commented out — Foundry MCP tool registration does not work.
 // authType 'OAuth2' with clientId triggers the PKCE/delegated auth flow.
 // Foundry acquires a token scoped to audience/mcp.access on behalf of the user.
-var loginEndpoint = environment().authentication.loginEndpoint
-var tenantId = tenant().tenantId
+// var loginEndpoint = environment().authentication.loginEndpoint
+// var tenantId = tenant().tenantId
 
-resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
-  name: aiFoundryName
-}
+// resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
+//   name: aiFoundryName
+// }
 
-resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = [
-  for (api, i) in apis: {
-    name: 'MCP-${api.name}'
-    parent: foundry
-    properties: {
-      category: 'RemoteTool'
-      target: api.uri
-      authType: 'OAuth2'
-      isSharedToAll: true
-      authorizationUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/authorize'
-      tokenUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
-      refreshUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
-      scopes: ['${api.audience}/mcp.access']
-      credentials: {
-        clientId: api.clientId
-      }
-      metadata: {
-        type: 'custom_MCP'
-        audience: api.audience
-        clientId: api.clientId
-      }
-    }
-  }
-]
+// resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = [
+//   for (api, i) in apis: {
+//     name: 'MCP-${api.name}'
+//     parent: foundry
+//     properties: {
+//       category: 'RemoteTool'
+//       target: api.uri
+//       authType: 'OAuth2'
+//       isSharedToAll: true
+//       authorizationUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/authorize'
+//       tokenUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+//       refreshUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
+//       scopes: ['${api.audience}/mcp.access']
+//       credentials: {
+//         clientId: api.clientId
+//       }
+//       metadata: {
+//         type: 'custom_MCP'
+//         audience: api.audience
+//         clientId: api.clientId
+//       }
+//     }
+//   }
+// ]
