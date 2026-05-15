@@ -34,7 +34,7 @@ param peSubnetResourceId string = ''
 
 // ── App Service Plan ──────────────────────────────────────────────────────────
 
-var planName = 'asp-${resourceToken}'
+var planName = 'cloud-helper-mcp-plan-${resourceToken}'
 
 resource existingPlan 'Microsoft.Web/serverfarms@2023-12-01' existing = if (!empty(existingPlanName)) {
   name: existingPlanName
