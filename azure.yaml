@@ -22,6 +22,28 @@ infra:
   path: ./infra
 
 hooks:
+  postprovision:
+    shell: sh
+    run: |
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔗  Foundry MCP Connection — OAuth2 Redirect URI"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      REDIRECT_URL=$(az rest --method GET \
+        --url "https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}/projects/${FOUNDRY_PROJECT_NAME}/connections/MCP-${WEB_APP_NAME}?api-version=2025-04-01-preview" \
+        --query "properties.redirectUrl" -o tsv 2>/dev/null)
+      if [ -n "$REDIRECT_URL" ] && [ "$REDIRECT_URL" != "None" ]; then
+        echo "  ✅  redirectUrl: $REDIRECT_URL"
+        echo ""
+        echo "  ❗  Register this URI in the app registration:"
+        echo "      Azure Portal → App registrations → ${WEB_APP_NAME}"
+        echo "      → Authentication → Mobile and desktop applications"
+        echo "      → Add URI: $REDIRECT_URL"
+      else
+        echo "  ⚠️  Could not retrieve redirectUrl (connection may still be provisioning)"
+      fi
+      echo ""
   postdeploy:
     shell: sh
     run: |
