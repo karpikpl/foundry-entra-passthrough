@@ -30,7 +30,7 @@ hooks:
       echo "🔗  Foundry MCP Connection — creating via REST"
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      CONNECTION_NAME="MCP-$(echo "${WEB_APP_NAME}" | cut -c1-23)"
+      CONNECTION_NAME="$(echo "${WEB_APP_NAME}" | cut -c1-23)"
       CONNECTION_URL="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}/connections/${CONNECTION_NAME}?api-version=2025-09-01"
 
       BODY=$(printf '{
@@ -46,7 +46,7 @@ hooks:
           "tokenUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/token",
           "authorizationUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/authorize",
           "refreshUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/token",
-          "scopes": ["%s/mcp.access"]
+          "scopes": ["https://%s/mcp/mcp.access"]
         }
       }' \
         "${APP_SLOT_HOSTNAME}" \
@@ -54,7 +54,7 @@ hooks:
         "${AZURE_TENANT_ID}" \
         "${AZURE_TENANT_ID}" \
         "${AZURE_TENANT_ID}" \
-        "${ENTRA_APP_AUDIENCE}")
+        "${APP_SLOT_HOSTNAME}")
 
       echo "  🔍  Checking for existing connection..."
       EXISTING=$(az rest --method GET --url "${CONNECTION_URL}" -o json 2>/dev/null) || true
@@ -92,10 +92,30 @@ hooks:
       if [ -n "$REDIRECT_URL" ] && [ "$REDIRECT_URL" != "None" ]; then
         echo "  ✅  redirectUrl: $REDIRECT_URL"
         echo ""
-        echo "  ❗  Register this URI in the app registration:"
-        echo "      Azure Portal → App registrations → ${WEB_APP_NAME}"
-        echo "      → Authentication → Mobile and desktop applications"
-        echo "      → Add URI: $REDIRECT_URL"
+        echo "  🔧  Patching app registration to include Foundry redirect URI..."
+        # Get app registration object ID from appId (client ID)
+        APP_OBJ_ID=$(az rest --method GET \
+          --url "https://graph.microsoft.com/v1.0/applications?\$filter=appId eq '${ENTRA_APP_CLIENT_ID}'" \
+          --query "value[0].id" -o tsv 2>/dev/null) || true
+        if [ -n "$APP_OBJ_ID" ] && [ "$APP_OBJ_ID" != "None" ]; then
+          # Fetch current publicClient.redirectUris
+          CURRENT_URIS=$(az rest --method GET \
+            --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJ_ID}" \
+            --query "publicClient.redirectUris" -o json 2>/dev/null) || true
+          # Add REDIRECT_URL if not already present, then PATCH
+          UPDATED_URIS=$(echo "${CURRENT_URIS}" | python3 -c "import sys,json; u=json.load(sys.stdin); r='${REDIRECT_URL}'; u.append(r) if r not in u else None; print(json.dumps(u))")
+          az rest --method PATCH \
+            --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJ_ID}" \
+            --body "{\"publicClient\":{\"redirectUris\":${UPDATED_URIS}}}" \
+            --headers "Content-Type=application/json" > /dev/null 2>&1 \
+            && echo "  ✅  Foundry redirect URI registered in app registration" \
+            || echo "  ⚠️  Could not patch app registration — add manually: ${REDIRECT_URL}"
+        else
+          echo "  ⚠️  Could not find app registration object ID — add redirect URI manually:"
+          echo "      Azure Portal → App registrations → ${WEB_APP_NAME}"
+          echo "      → Authentication → Mobile and desktop applications"
+          echo "      → Add URI: $REDIRECT_URL"
+        fi
       else
         echo "  ⚠️  redirectUrl not yet available — re-run 'azd provision' or check the connection in the Azure Portal"
       fi
@@ -104,13 +124,26 @@ hooks:
     shell: sh
     run: |
       echo ""
-      echo "✅ Provisioning complete!"
+      echo "✅ Deployment complete!"
       echo ""
+
+      # Write client/.env so test_client.py works without --url
+      printf 'SERVER_URL=https://%s/mcp\nENTRA_APP_CLIENT_ID=%s\n' \
+        "${APP_SLOT_HOSTNAME}" "${ENTRA_APP_CLIENT_ID}" > client/.env
+      echo "  📝  Wrote client/.env"
+
+      # Write agent_v2/.env for the Foundry agent script
+      printf 'FOUNDRY_ENDPOINT=https://%s.cognitiveservices.azure.com/api/projects/%s\nMCP_SERVER_URL=https://%s/mcp\nMCP_CONNECTION_NAME=%s\nAGENT_MODEL=gpt-4o\n' \
+        "${FOUNDRY_NAME}" "${FOUNDRY_PROJECT_NAME}" "${APP_SLOT_HOSTNAME}" \
+        "$(echo "${WEB_APP_NAME}" | cut -c1-23)" > agent_v2/.env
+      echo "  📝  Wrote agent_v2/.env"
+      echo ""
+
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "🔗  MCP Server Endpoints"
+      echo "🔗  MCP Server Endpoint"
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      echo "  🟢  MCP Server (fixed OAuth): https://${APP_SLOT_HOSTNAME}/mcp"
+      echo "  🟢  https://${APP_SLOT_HOSTNAME}/mcp"
       echo ""
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo "🤖  Configure Azure AI Foundry Agent — MCP Tool"
@@ -127,15 +160,16 @@ hooks:
       echo "  Auth URL              : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize"
       echo "  Token URL             : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token"
       echo "  Refresh URL           : https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token"
-      echo "  Scopes                : ${ENTRA_APP_AUDIENCE}/.default"
+      echo "  Scopes                : https://${APP_SLOT_HOSTNAME}/mcp/mcp.access"
       echo ""
-      echo "❗❗❗ Remember to register the Foundry redirect URI in the Azure app registration in 'Mobile and desktop applications' section for the Fixed slot (MCP Tool) to enable OAuth Identity Passthrough."
+      echo "❗  Register the Foundry redirect URI in the app registration"
+      echo "    under Authentication → Mobile and desktop applications."
       echo ""
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo "🧪  Quick VS Code test (mcp.json snippet)"
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      echo '  "cloud-helper-fixed": {'
+      echo '  "cloud-helper-mcp": {'
       echo '    "type": "http",'
       echo "    \"url\": \"https://${APP_SLOT_HOSTNAME}/mcp\""
       echo '  }'

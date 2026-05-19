@@ -1,63 +1,136 @@
-# MCP OAuth with Direct Entra Authentication
+# MCP OAuth — Entra ID Authentication & Identity Passthrough
 
-Demonstrates how to authenticate VS Code's MCP client directly with Microsoft Entra ID using RFC 9728 Protected Resource Metadata — no OAuth proxy layer needed.
+Demonstrates a production-ready pattern for deploying a [FastMCP](https://github.com/jlowin/fastmcp) server on Azure App Service with **Microsoft Entra ID authentication**, and connecting it to clients using **OAuth 2.0 Identity Passthrough** — so every tool call is made under the caller's own identity.
 
-## How It Works
+## What This Shows
 
-- **No proxy:** VS Code authenticates directly to Entra, not through an intermediary
-- **Native account picker:** No browser window required; uses VS Code's built-in Microsoft authentication  
-- **One requirement:** Pre-authorize VS Code's client ID in your Entra app registration
-- **Fast token acquisition:** Tokens obtained silently after first sign-in
+| Client | Auth Mechanism |
+|--------|---------------|
+| VS Code MCP client | [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) — native account picker, no browser |
+| `test_client.py` | OAuth 2.0 PKCE flow — browser redirect, token introspection |
+| `agent_v2/` (Azure AI Foundry) | **Entra Identity Passthrough** via Foundry connection — agent calls MCP as the signed-in user |
 
-## VS Code Configuration
+In all three cases the MCP server receives a real Entra bearer token and can inspect the caller's identity (UPN, OID, tenant, scopes).
 
-Add to `.vscode/mcp.json`:
+## Architecture
 
-```json
-{
-  "servers": {
-    "cloud-helper": {
-      "type": "http",
-      "url": "https://<your-app>.azurewebsites.net/mcp"
-    }
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Microsoft Entra ID                          │
+│   App Registration: mcp-server                                  │
+│   Identifier URI:   https://<app>.azurewebsites.net/mcp         │
+│   Scope:            mcp.access                                  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ OAuth 2.0 / OIDC
+           ┌────────────────┼────────────────┐
+           │                │                │
+    ┌──────▼──────┐  ┌──────▼──────┐  ┌─────▼──────────────────┐
+    │  VS Code    │  │ test_client │  │  Azure AI Foundry       │
+    │  (RFC 9728) │  │  (PKCE)     │  │  agent_v2 (passthrough) │
+    └──────┬──────┘  └──────┬──────┘  └─────┬──────────────────┘
+           │                │               │ Bearer token (user's identity)
+           └────────────────┴───────────────┘
+                            │
+              ┌─────────────▼─────────────┐
+              │  FastMCP Server            │
+              │  Azure App Service         │
+              │  JWT validation (Entra)    │
+              │  tools: whoami, hello      │
+              └────────────────────────────┘
 ```
 
-Replace `<your-app>` with your app's hostname. After deploying with `azd up`, the endpoint URL is printed by the postprovision hook.
+## Entra Identity Passthrough in Action
 
-That's all. VS Code auto-discovers authentication via the server's Protected Resource Metadata endpoint.
+### Azure AI Foundry Agent (`agent_v2/`)
 
-## Live Demo
+The Foundry agent uses `MCPTool` with `project_connection_id` — Foundry fetches a **delegated token for the signed-in user** and forwards it to the MCP server automatically. No manual token acquisition.
 
-After running `azd up`, your MCP endpoint is printed by the postprovision hook. Use that URL in your VS Code configuration above.
+![Azure AI Foundry agent calling MCP with identity passthrough](images/foundry.png)
 
-## The Key: Pre-Authorize VS Code
+*Foundry Playground: the `whoami` tool returns the authenticated user's Name, UPN, OID, Tenant, and scope — all from the passthrough token.*
 
-In your Entra app registration, add VS Code's client ID to `preAuthorizedApplications`:
+### CLI Agent (`agent_v2/agent.py`)
 
 ```bash
-az ad app update --id $APP_ID --set api.preAuthorizedApplications='[
-  {
-    "appId": "aebc6443-996d-45c2-90f0-388ff96faa56",
-    "delegatedPermissionIds": ["'$SCOPE_ID'"]
-  }
-]'
+cd agent_v2 && uv run agent.py --prompt "say hello to World"
 ```
 
-## Setup & Deployment
+![CLI agent with Entra identity passthrough](images/agent_v2.png)
+
+*The agent creates a Foundry v2 agent, auto-approves MCP tool calls, and receives the caller's identity from the server.*
+
+### Test Client (PKCE flow)
 
 ```bash
-azd up -e mcp-auth-test-direct
+cd client && uv run test_client.py login
 ```
+
+![Test client OAuth PKCE flow](images/test-client.png)
+
+*The test client discovers auth via Protected Resource Metadata, completes a PKCE flow, and calls the MCP tools with the resulting token.*
+
+## Key Design Decisions
+
+**No OAuth proxy.** The MCP server registers directly as an Entra resource with its own `identifierUri` and `mcp.access` scope. Clients authenticate directly to Entra — no intermediary.
+
+**RFC 9728 Protected Resource Metadata.** The server exposes `/.well-known/oauth-protected-resource` so clients like VS Code auto-discover the authorization server, resource URI, and required scope.
+
+**`https://` identifier URI.** The app registration uses `https://<hostname>/mcp` (not `api://`) as the identifier URI so the `resource` parameter in OAuth requests matches the scope namespace — avoiding `AADSTS9010010`.
+
+**Identity Passthrough.** Foundry's `project_connection_id` field on `MCPTool` instructs Foundry to forward a delegated token for the current user. The MCP server validates this token and extracts the caller's identity — every tool invocation is attributable to a real user.
+
+## Repository Structure
+
+```
+├── server/           # FastMCP server (Python, App Service)
+│   ├── server.py     # MCP app + Protected Resource Metadata handler
+│   └── config.py     # Entra config (audience, scope, PRM)
+├── client/           # Test client (OAuth PKCE)
+│   └── test_client.py
+├── agent_v2/         # Azure AI Foundry agent (Identity Passthrough)
+│   └── agent.py
+├── infra/            # Bicep — App Service, Entra app reg, Foundry
+└── azure.yaml        # AZD hooks (provision connection, patch app reg)
+```
+
+## Deploy
+
+```bash
+azd up
+```
+
+After deployment, the postprovision hook:
+1. Creates the Foundry MCP connection with the correct OAuth scope
+2. Automatically registers the Foundry redirect URI in the Entra app registration
+
+The postdeploy hook writes ready-to-use `.env` files for both `client/` and `agent_v2/`.
+
+## Local Testing
+
+**Test client** (PKCE browser flow):
+```bash
+cd client
+uv sync
+uv run test_client.py login
+```
+
+**Foundry agent** (Identity Passthrough):
+```bash
+cd agent_v2
+uv sync
+uv run agent.py --prompt "Who am I? Call the whoami tool."
+```
+
+On first run the agent opens a browser for one-time OAuth consent; subsequent runs are silent.
 
 ## References
 
-- [MS Learn: MCP Overview](https://learn.microsoft.com/en-us/azure/app-service/overview-managed-identity)
-- [FastMCP GitHub](https://github.com/jlowin/FastMCP)
-- [VS Code MCP Documentation](https://github.com/microsoft/vscode-mcp)
-- [RFC 9728: OAuth 2.0 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
+- [FastMCP](https://github.com/jlowin/fastmcp)
+- [RFC 9728 — OAuth 2.0 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)
+- [Azure AI Foundry — MCP RemoteTool](https://learn.microsoft.com/en-us/azure/ai-foundry/)
+- [azure-ai-projects SDK](https://pypi.org/project/azure-ai-projects/)
 
 ## License
 
 MIT
+

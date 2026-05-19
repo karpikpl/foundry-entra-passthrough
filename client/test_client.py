@@ -39,6 +39,8 @@ def _first_env(*names: str) -> str | None:
 
 
 def _normalize_server_url(server_url: str) -> str:
+    if not server_url.startswith("http"):
+        server_url = "https://" + server_url
     parsed = urlparse(server_url)
     if not parsed.path or parsed.path == "/":
         return server_url.rstrip("/") + "/mcp"
@@ -142,21 +144,19 @@ def _resolve_config(
     resolved_server_url = _normalize_server_url(
         server_url
         or _first_env(
-            "DIRECT_SERVER_URL",
             "SERVER_URL",
-            "APP_SLOT_HOSTNAME",
         )
         or DEFAULT_SERVER_URL
     )
     prm = _discover_protected_resource(resolved_server_url)
     resolved_scope = _resolve_scope(
-        explicit_scope=scope or _first_env("DIRECT_SCOPE", "MCP_SCOPE"),
+        explicit_scope=scope or _first_env("MCP_SCOPE"),
         discovered_scope=prm["scope"],
         server_client_id=server_client_id,
     )
     resolved_client_id = (
         client_id
-        or _first_env("TEST_CLIENT_ID", "DIRECT_CLIENT_ID", "VSCODE_CLIENT_ID")
+        or _first_env("TEST_CLIENT_ID", "ENTRA_APP_CLIENT_ID")
         or VSCODE_CLIENT_ID
     )
 
@@ -214,7 +214,7 @@ async def _fetch_access_token(
     oauth = _OAuth(
         mcp_url=config["server_url"],
         scopes=[config["scope"]],
-        client_name="MCP Direct Entra Test Client",
+        client_name="MCP Test Client",
         client_id=config["client_id"],
         open_browser=open_browser,
     )
@@ -280,7 +280,7 @@ def _raise_auth_error(exc: Exception, config: dict[str, str]) -> None:
     if "redirect" in lower_message:
         hints.append("Verify the public client app registration allows the localhost loopback redirect URI used by desktop PKCE flows.")
     if any(term in lower_message for term in ("401", "403", "scope", "audience")):
-        hints.append("Verify the selected slot exposes api://<app-id>/mcp.access and that the requested scope matches the slot's app registration.")
+        hints.append("Verify the app registration exposes api://<app-id>/mcp.access and that the requested scope matches.")
 
     hint_text = ""
     if hints:
@@ -315,7 +315,7 @@ def run_flow(
         _raise_auth_error(exc, config)
 
     click.echo(
-        f"\n✅ Direct Entra flow succeeded: tools/list returned {len(tool_names)} tool(s): {tool_names}"
+        f"\n✅ Auth flow succeeded: tools/list returned {len(tool_names)} tool(s): {tool_names}"
     )
     click.echo("\n--- Token claims ---")
     click.echo(_format_claims(claims))
@@ -345,7 +345,8 @@ COMMON_OPTIONS = [
     click.option(
         "--client-id",
         help=(
-            "Pre-registered public client ID. Defaults to TEST_CLIENT_ID or VS Code's "
+            "Pre-registered public client ID. Defaults to TEST_CLIENT_ID or "
+            f"ENTRA_APP_CLIENT_ID env vars, then falls back to VS Code's "
             f"client ID ({VSCODE_CLIENT_ID})."
         ),
     ),
@@ -374,12 +375,12 @@ def apply_common_options(func):
 
 @click.group()
 def cli() -> None:
-    """Local MCP direct-Entra test client — PKCE auth code, no DCR."""
+    """Local MCP test client — PKCE auth code flow, no DCR."""
 
 
 @cli.command()
 @apply_common_options
-def direct(
+def login(
     server_url: str | None,
     client_id: str | None,
     server_client_id: str | None,
@@ -399,7 +400,7 @@ def fetch_token(
     scope: str | None,
     open_browser: bool,
 ) -> None:
-    """Alias for direct; retained for QA scripts and manual verification."""
+    """Alias for login; retained for QA scripts and manual verification."""
     run_flow(server_url, client_id, server_client_id, scope, open_browser)
 
 

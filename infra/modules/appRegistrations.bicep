@@ -11,7 +11,11 @@ extension microsoftGraphV1
 @description('Environment name — required in every app registration name so parallel AZD environments stay unique in the same tenant.')
 param environmentName string
 
+@description('Web app name — used to add the HTTPS Application ID URI so Entra accepts RFC 8707 resource indicators from the MCP server.')
+param webAppName string
+
 var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
+var azureCliClientId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
 
 // ── Deterministic scope GUIDs (stable across deployments in the same env) ────
 var scopeId = guid('cloud-helper-mcp', environmentName, 'mcp.access')
@@ -22,9 +26,9 @@ var envSuffix = '-${environmentName}'
 
 var name = 'cloud-helper-mcp${envSuffix}'
 
-// identifierUris — using display-name based URIs (self-referential api://{appId}
-// can't be set in the same Graph resource declaration)
+// identifierUris — api:// for scope resolution + https:// for RFC 8707 resource indicator
 var identifierUri = 'api://${name}'
+var httpsIdentifierUri = 'https://${webAppName}.azurewebsites.net/mcp'
 
 var webRedirectUris = [
   'https://ai.azure.com/'
@@ -42,6 +46,7 @@ resource app 'Microsoft.Graph/applications@v1.0' = {
     redirectUris: [
       'http://localhost'
       'http://127.0.0.1'
+      'http://localhost:55899/callback'
     ]
   }
 
@@ -74,11 +79,18 @@ resource app 'Microsoft.Graph/applications@v1.0' = {
           scopeId
         ]
       }
+      {
+        appId: azureCliClientId
+        delegatedPermissionIds: [
+          scopeId
+        ]
+      }
     ]
   }
 
   identifierUris: [
     identifierUri
+    httpsIdentifierUri
   ]
 }
 

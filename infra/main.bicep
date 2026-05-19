@@ -55,6 +55,7 @@ module appRegs './modules/appRegistrations.bicep' = {
   name: 'appRegistrations-${environmentName}'
   params: {
     environmentName: environmentName
+    webAppName: webAppName
   }
 }
 

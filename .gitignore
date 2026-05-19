@@ -22,3 +22,5 @@ server/.env
 .azure-debug*/
 server/__pycache__/
 .squad/
+agent_v2/.env
+__pycache__/
