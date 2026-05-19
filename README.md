@@ -41,6 +41,27 @@ In all three cases the MCP server receives a real Entra bearer token and can ins
 
 ## Entra Identity Passthrough in Action
 
+### VS Code (RFC 9728 — native account picker)
+
+Add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "cloud-helper": {
+      "type": "http",
+      "url": "https://<your-app>.azurewebsites.net/mcp"
+    }
+  }
+}
+```
+
+VS Code auto-discovers authentication via the server's `/.well-known/oauth-protected-resource` endpoint — no auth config needed. It uses the built-in Microsoft account picker (no browser redirect).
+
+![VS Code calling MCP whoami tool with Entra authentication](images/vscode.png)
+
+*VS Code: `whoami` returns the authenticated user's identity — Subject, Tenant, Audience, Client ID, and `mcp.access` scope — all from the native Entra token.*
+
 ### Azure AI Foundry Agent (`agent_v2/`)
 
 The Foundry agent uses `MCPTool` with `project_connection_id` — Foundry fetches a **delegated token for the signed-in user** and forwards it to the MCP server automatically. No manual token acquisition.
