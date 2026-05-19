@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "FastMCP RS-mode server for MCP OAuth repro/fix"
 requires-python = ">=3.12"
 dependencies = [
-    # fastmcp wraps the official mcp SDK and adds OAuthProxy, JWTVerifier,
-    # and a full OAuth 2.1 proxy server — all we need in one package.
+    # FastMCP provides the MCP server, protected-resource metadata routes,
+    # and JWT bearer auth integration points we use for direct Entra auth.
     "fastmcp>=3.2",
     "pydantic-settings>=2.0",
     "uvicorn[standard]>=0.29",

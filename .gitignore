@@ -10,10 +10,10 @@
 # ARM JSON build artifacts (compiled from Bicep)
 infra/*.json
 infra/**/*.json
-!infra/main.parameters.json
 
-# Local client environment generated from AZD outputs
+# Local client/server environments generated from AZD outputs or local setup
 client/.env
+server/.env
 
 # VS Code MCP config generated from AZD outputs (environment-specific URLs)
 .vscode/mcp.json
@@ -21,3 +21,6 @@ client/.env
 # Naomi debug artifacts
 .azure-debug*/
 server/__pycache__/
+.squad/
+agent_v2/.env
+__pycache__/

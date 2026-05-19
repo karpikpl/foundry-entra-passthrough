@@ -1,126 +1,52 @@
 // infra/modules/appRegistrations.bicep
-// Created: 2026-05-09T04:22:42Z
+// Updated: 2026-05-11 for direct-Entra resource-server mode.
 //
-// Creates two Entra app registrations for the mcp-oauth repro/fixed demo:
-//
-//   cloud-helper-mcp-repro
-//     public-client redirect URIs : http://localhost          (H1 bug preserved)
-//     web redirect URIs           : https://foundry.azure.com/, https://vscode.dev/redirect
-//     exposes scope               : mcp.access
-//     token version               : 2
-//
-//   cloud-helper-mcp-fixed
-//     public-client redirect URIs : http://localhost, http://127.0.0.1  (H1 fixed)
-//     web redirect URIs           : https://foundry.azure.com/, https://vscode.dev/redirect
-//     exposes scope               : mcp.access
-//     token version               : 2
-//
-// REQUIRES: Microsoft.Graph Bicep extension (bicepconfig.json enables it).
-// The deploying principal must have Application.ReadWrite.OwnedBy (or higher)
-// on the Microsoft Graph API in the target Entra tenant.
-//
-// identifierUris limitation:
-//   Microsoft.Graph Bicep cannot set identifierUris to api://{appId} in the
-//   same resource block (self-referential). We use api://cloud-helper-mcp-repro
-//   and api://cloud-helper-mcp-fixed instead — valid, unique, and known at
-//   deploy time. If you need the canonical api://{appId} format, run:
-//     az ad app update --id <APP_ID> --identifier-uris "api://<APP_ID>"
-//   after provisioning. See infra/README.md for the optional post-provision step.
+// Creates Entra resource-server app registration for the mcp-oauth
+// demo. The app exposes the mcp.access delegated scope and creates the
+// corresponding service principal in-tenant. The app additionally
+// pre-authorizes VS Code so it can request the scope directly.
 
 extension microsoftGraphV1
 
-@description('Environment name — disambiguates multiple AZD environments in the same tenant.')
+@description('Environment name — required in every app registration name so parallel AZD environments stay unique in the same tenant.')
 param environmentName string
 
-@description('App Service name — used to construct the OAuthProxy callback URI for the staging slot.')
+@description('Web app name — used to add the HTTPS Application ID URI so Entra accepts RFC 8707 resource indicators from the MCP server.')
 param webAppName string
 
+var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
+var azureCliClientId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
+
 // ── Deterministic scope GUIDs (stable across deployments in the same env) ────
-// guid() is deterministic for the same inputs — ensures idempotent re-deploys.
-var reproScopeId = guid('cloud-helper-mcp-repro', environmentName, 'mcp.access')
-var fixedScopeId = guid('cloud-helper-mcp-fixed', environmentName, 'mcp.access')
+var scopeId = guid('cloud-helper-mcp', environmentName, 'mcp.access')
 
-// Friendly display suffix for multi-env tenants (omitted when env = 'production')
-var envSuffix = environmentName == 'production' ? '' : '-${environmentName}'
+// Always suffix app registration names with the AZD environment name so
+// parallel environments never reuse the same Entra display names.
+var envSuffix = '-${environmentName}'
 
-var reproName = 'cloud-helper-mcp-repro${envSuffix}'
-var fixedName = 'cloud-helper-mcp-fixed${envSuffix}'
-var proxyName = 'cloud-helper-mcp-proxy${envSuffix}'
+var name = 'cloud-helper-mcp${envSuffix}'
 
-// identifierUris — using display-name based URIs (see file header for rationale)
-var reproIdentifierUri = 'api://${reproName}'
-var fixedIdentifierUri = 'api://${fixedName}'
-// proxyApp is a confidential client only — it has no exposed scopes and no
-// identifierUri. It requests the fixed app's mcp.access scope on behalf of users.
+// identifierUris — api:// for scope resolution + https:// for RFC 8707 resource indicator
+var identifierUri = 'api://${name}'
+var httpsIdentifierUri = 'https://${webAppName}.azurewebsites.net/mcp'
 
-// Common web redirect URIs shared by both app registrations
 var webRedirectUris = [
-  'https://foundry.azure.com/'
+  'https://ai.azure.com/'
   'https://vscode.dev/redirect'
 ]
 
-// OAuthProxy callback URI — FastMCP's fixed redirect URI that Entra must know
-// about. The proxy accepts DCR requests with dynamic callback ports from MCP
-// clients, but always uses this single URI when redirecting to Entra. After
-// Entra validates the user, it redirects here; the proxy then forwards to the
-// original dynamic client callback. Only the fixed app needs this (the repro
-// app still uses direct Entra auth with public-client redirect URIs).
-var fixedProxyCallbackUri = 'https://${webAppName}-staging.azurewebsites.net/auth/callback'
-
-// ── Repro app registration (H1 bug preserved: localhost only) ─────────────────
-resource reproApp 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: reproName
-  displayName: reproName
+// ── app registration (localhost + 127.0.0.1, VS Code pre-authorized) ───
+resource app 'Microsoft.Graph/applications@v1.0' = {
+  uniqueName: name
+  displayName: name
   signInAudience: 'AzureADMyOrg'
-
-  // Public-client (Mobile/Desktop) platform — allows dynamic ports on loopback
-  publicClient: {
-    redirectUris: [
-      'http://localhost'
-    ]
-  }
-
-  // Web platform — for Foundry, VS Code browser-based clients, and OAuthProxy callback
-  web: {
-    redirectUris: concat(webRedirectUris, [fixedProxyCallbackUri])
-    implicitGrantSettings: {
-      enableAccessTokenIssuance: false
-      enableIdTokenIssuance: false
-    }
-  }
-
-  // RS-mode: expose mcp.access delegated scope; token v2
-  api: {
-    requestedAccessTokenVersion: 2
-    oauth2PermissionScopes: [
-      {
-        id: reproScopeId
-        adminConsentDescription: 'Allows the app to call the cloud-helper MCP server on behalf of the user (repro registration).'
-        adminConsentDisplayName: 'Access MCP server (repro)'
-        isEnabled: true
-        type: 'User'
-        userConsentDescription: 'Access the cloud-helper MCP server on your behalf.'
-        userConsentDisplayName: 'Access MCP server'
-        value: 'mcp.access'
-      }
-    ]
-  }
-
-  identifierUris: [
-    reproIdentifierUri
-  ]
-}
-
-// ── Fixed app registration (H1 corrected: localhost + 127.0.0.1) ──────────────
-resource fixedApp 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: fixedName
-  displayName: fixedName
-  signInAudience: 'AzureADMyOrg'
+  isFallbackPublicClient: true  // Allows PKCE token exchange without client_secret (required for Foundry OAuth Identity Passthrough)
 
   publicClient: {
     redirectUris: [
       'http://localhost'
       'http://127.0.0.1'
+      'http://localhost:55899/callback'
     ]
   }
 
@@ -136,9 +62,9 @@ resource fixedApp 'Microsoft.Graph/applications@v1.0' = {
     requestedAccessTokenVersion: 2
     oauth2PermissionScopes: [
       {
-        id: fixedScopeId
-        adminConsentDescription: 'Allows the app to call the cloud-helper MCP server on behalf of the user (fixed registration).'
-        adminConsentDisplayName: 'Access MCP server (fixed)'
+        id: scopeId
+        adminConsentDescription: 'Allows the app to call the cloud-helper MCP server on behalf of the user.'
+        adminConsentDisplayName: 'Access MCP server'
         isEnabled: true
         type: 'User'
         userConsentDescription: 'Access the cloud-helper MCP server on your behalf.'
@@ -146,67 +72,42 @@ resource fixedApp 'Microsoft.Graph/applications@v1.0' = {
         value: 'mcp.access'
       }
     ]
+    preAuthorizedApplications: [
+      {
+        appId: vscodeClientId
+        delegatedPermissionIds: [
+          scopeId
+        ]
+      }
+      {
+        appId: azureCliClientId
+        delegatedPermissionIds: [
+          scopeId
+        ]
+      }
+    ]
   }
 
   identifierUris: [
-    fixedIdentifierUri
+    identifierUri
+    httpsIdentifierUri
   ]
 }
 
-// ── Proxy app registration (OAuthProxy confidential client) ──────────────────
-// Separate client app so that Entra's consent model works correctly:
-//   proxy (client) requests → fixed (resource) mcp.access scope
-// When a single app requests its own scope the consent check behaves
-// inconsistently; a separate client/resource pair resolves this cleanly.
-resource proxyApp 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: proxyName
-  displayName: proxyName
-  signInAudience: 'AzureADMyOrg'
-
-  web: {
-    redirectUris: [fixedProxyCallbackUri]
-    implicitGrantSettings: {
-      enableAccessTokenIssuance: false
-      enableIdTokenIssuance: false
-    }
-  }
-
-  // Declare the delegated permission the proxy needs so admin consent and the
-  // Entra consent UI both work correctly out of the box.
-  requiredResourceAccess: [
-    {
-      // fixed app is the resource being accessed
-      resourceAppId: fixedApp.appId
-      resourceAccess: [
-        {
-          // fixed app's mcp.access delegated scope
-          id: fixedScopeId
-          type: 'Scope'
-        }
-      ]
-    }
-  ]
+resource servicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
+  appId: app.appId
+  accountEnabled: true
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
+@description('Client ID of the app registration (H1 corrected).')
+output clientId string = app.appId
 
-@description('Client ID of the repro app registration (H1 bug preserved).')
-output reproClientId string = reproApp.appId
+@description('Audience for the app — the api:// identifier URI.')
+output audience string = identifierUri
 
-@description('Client ID of the fixed app registration (H1 corrected).')
-output fixedClientId string = fixedApp.appId
+@description('Application ID URI for the app.')
+output identifierUri string = identifierUri
 
-@description('Client ID of the proxy app registration (OAuthProxy confidential client).')
-output proxyClientId string = proxyApp.appId
-
-@description('Audience for the repro app — the api:// identifier URI, used both for scope construction and JWT aud validation.')
-output reproAudience string = reproIdentifierUri
-
-@description('Audience for the fixed app — the api:// identifier URI, used both for scope construction and JWT aud validation.')
-output fixedAudience string = fixedIdentifierUri
-
-@description('Application ID URI for repro app.')
-output reproIdentifierUri string = reproIdentifierUri
-
-@description('Application ID URI for fixed app.')
-output fixedIdentifierUri string = fixedIdentifierUri
+@description('Scope string for requesting tokens to call the MCP server.')
+output scope string = '${identifierUri}/mcp.access'
