@@ -177,6 +177,7 @@ module mcpApis './modules/apps/apps-private-link.bicep' = {
     vnetResourceId: vnet.outputs.VIRTUAL_NETWORK_RESOURCE_ID
     peSubnetResourceId: vnet.outputs.VIRTUAL_NETWORK_SUBNETS.peSubnet.resourceId
     aiFoundryName: foundry.outputs.FOUNDRY_NAME
+    createMcpConnection: false
     apis: [
       {
         name: webAppName
@@ -207,3 +208,5 @@ output FOUNDRY_PROJECT_NAME string = aiProject.outputs.FOUNDRY_PROJECT_NAME
 output FOUNDRY_PROJECT_CONNECTION_STRING string = aiProject.outputs.FOUNDRY_PROJECT_CONNECTION_STRING
 output AZURE_OPENAI_CHAT_DEPLOYMENT_NAME string = chatDeploymentName
 output VNET_RESOURCE_ID string = vnet.outputs.VIRTUAL_NETWORK_RESOURCE_ID
+@description('MCP connection JSON payloads sent to ARM — inspect to troubleshoot Foundry connection failures.')
+output MCP_CONNECTION_PAYLOADS array = mcpApis.outputs.mcpConnectionPayloads

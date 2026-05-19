@@ -18,7 +18,7 @@ from fastmcp.client.auth import BearerAuth, OAuth
 ENV_FILE = Path(__file__).with_name(".env")
 load_dotenv(ENV_FILE)
 
-DEFAULT_FIXED_URL = "https://<your-app>.azurewebsites.net/mcp"
+DEFAULT_SERVER_URL = "https://<your-app>.azurewebsites.net/mcp"
 VSCODE_CLIENT_ID = "aebc6443-996d-45c2-90f0-388ff96faa56"
 HELLO_TOOL_CANDIDATES = ("hello_world", "hello")
 
@@ -122,8 +122,7 @@ def _resolve_scope(
         "AZURE_CLIENT_ID",
         "SERVER_CLIENT_ID",
         "CLIENT_ID",
-        "FIXED_CLIENT_ID",
-        "REPRO_CLIENT_ID",
+        "ENTRA_APP_CLIENT_ID",
     )
     if resolved_server_client_id:
         return f"api://{resolved_server_client_id}/mcp.access"
@@ -145,10 +144,9 @@ def _resolve_config(
         or _first_env(
             "DIRECT_SERVER_URL",
             "SERVER_URL",
-            "FIXED_SERVER_URL",
-            "REPRO_SERVER_URL",
+            "APP_SLOT_HOSTNAME",
         )
-        or DEFAULT_FIXED_URL
+        or DEFAULT_SERVER_URL
     )
     prm = _discover_protected_resource(resolved_server_url)
     resolved_scope = _resolve_scope(
@@ -340,8 +338,8 @@ COMMON_OPTIONS = [
         "server_url",
         "--server-url",
         help=(
-            "MCP endpoint URL. Defaults to the fixed staging slot: "
-            f"{DEFAULT_FIXED_URL}"
+            "MCP endpoint URL. Defaults to: "
+            f"{DEFAULT_SERVER_URL}"
         ),
     ),
     click.option(

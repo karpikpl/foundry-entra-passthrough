@@ -96,7 +96,7 @@ Manual steps before `azd up`:
 
 Manual steps after `azd up`:
 - If your tenant requires it, grant/admin-consent the app registrations created for the new environment.
-- Verify the generated outputs with `azd env get-values`; `REPRO_CLIENT_ID`, `FIXED_CLIENT_ID`, `REPRO_AUDIENCE`, `FIXED_AUDIENCE`, and `WEB_APP_NAME` should all reflect the new environment.
+- Verify the generated outputs with `azd env get-values`; `ENTRA_APP_CLIENT_ID`, `ENTRA_APP_AUDIENCE`, and `WEB_APP_NAME` should all reflect the new environment.
 - If you want local helper files such as `client/.env`, generate them from `azd env get-values` on demand instead of relying on AZD hooks.
 
 ## Provision infrastructure (Bicep)
@@ -126,49 +126,23 @@ AZD discovers the correct App Service via the `azd-service-name: server` tag set
 
 ---
 
-## Repro → Fixed slot swap (code rollout only)
-
-```bash
-# Swap production ↔ staging (deploys fixed code to production, sends repro code to staging)
-# Auth profiles stay with their slots (sticky settings).
-eval "$(azd env get-values | sed 's/^/export /')"
-az webapp deployment slot swap \
-  --name "$WEB_APP_NAME" \
-  --resource-group "$AZURE_RESOURCE_GROUP" \
-  --slot staging \
-  --target-slot production
-```
-
-> ⚠️ After swap: production still has CLIENT_ID/AUDIENCE for the **repro** app registration (sticky). This is intentional — slot swap is for **code** rollout only. To change the auth profile, update the sticky app settings directly.
-
----
-
 ## Optional: Post-provision identifierUris fix
 
-The MS Graph Bicep extension cannot set `identifierUris` to `api://{appId}` in the same resource block (self-referential). Bicep therefore uses environment-specific display-name URIs such as `api://cloud-helper-mcp-repro-<env>` and `api://cloud-helper-mcp-fixed-<env>` instead.
+The MS Graph Bicep extension cannot set `identifierUris` to `api://{appId}` in the same resource block (self-referential). Bicep therefore uses an environment-specific display-name URI such as `api://cloud-helper-mcp-<env>` instead.
 
 If you need the canonical `api://{appId}` format, run after provisioning:
 
 ```bash
-# Get app IDs from AZD env
 eval "$(azd env get-values | sed 's/^/export /')"
-REPRO_ID="$REPRO_CLIENT_ID"
-FIXED_ID="$FIXED_CLIENT_ID"
+APP_ID="$ENTRA_APP_CLIENT_ID"
 
-az ad app update --id "$REPRO_ID" --identifier-uris "api://${REPRO_ID}"
-az ad app update --id "$FIXED_ID" --identifier-uris "api://${FIXED_ID}"
+az ad app update --id "$APP_ID" --identifier-uris "api://${APP_ID}"
 
-# Then update the AUDIENCE sticky settings on both slots
+# Then update the AUDIENCE sticky setting on the App Service
 az webapp config appsettings set \
   --name "$WEB_APP_NAME" \
   --resource-group "$AZURE_RESOURCE_GROUP" \
-  --slot-settings "AUDIENCE=api://${REPRO_ID}/mcp.access"
-
-az webapp config appsettings set \
-  --name "$WEB_APP_NAME" \
-  --resource-group "$AZURE_RESOURCE_GROUP" \
-  --slot staging \
-  --slot-settings "AUDIENCE=api://${FIXED_ID}/mcp.access"
+  --slot-settings "AUDIENCE=api://${APP_ID}/mcp.access"
 ```
 
 ---
@@ -186,10 +160,9 @@ azd up
 azd down
 ```
 
-> ⚠️ This deletes the App Service and slots but does **not** delete Entra app registrations. Delete those manually via the Azure Portal or:
+> ⚠️ This deletes the App Service but does **not** delete the Entra app registration. Delete it manually via the Azure Portal or:
 > ```bash
-> az ad app delete --id <REPRO_CLIENT_ID>
-> az ad app delete --id <FIXED_CLIENT_ID>
+> az ad app delete --id <ENTRA_APP_CLIENT_ID>
 > ```
 
 ---
