@@ -27,98 +27,11 @@ hooks:
     run: |
       echo ""
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "🔗  Foundry MCP Connection — creating via REST"
+      echo "🔗  Foundry MCP Connection"
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      CONNECTION_NAME="$(echo "${WEB_APP_NAME}" | cut -c1-23)"
-      CONNECTION_URL="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}/connections/${CONNECTION_NAME}?api-version=2025-09-01"
-
-      BODY=$(printf '{
-        "properties": {
-          "target": "https://%s/mcp",
-          "authType": "OAuth2",
-          "category": "RemoteTool",
-          "metadata": { "type": "custom_MCP" },
-          "credentials": {
-            "clientId": "%s",
-            "clientSecret": ""
-          },
-          "tokenUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/token",
-          "authorizationUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/authorize",
-          "refreshUrl": "https://login.microsoftonline.com/%s/oauth2/v2.0/token",
-          "scopes": ["https://%s/mcp/mcp.access"]
-        }
-      }' \
-        "${APP_SLOT_HOSTNAME}" \
-        "${ENTRA_APP_CLIENT_ID}" \
-        "${AZURE_TENANT_ID}" \
-        "${AZURE_TENANT_ID}" \
-        "${AZURE_TENANT_ID}" \
-        "${APP_SLOT_HOSTNAME}")
-
-      echo "  🔍  Checking for existing connection..."
-      EXISTING=$(az rest --method GET --url "${CONNECTION_URL}" -o json 2>/dev/null) || true
-      EXISTING_REDIRECT=$(echo "${EXISTING}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('properties',{}).get('redirectUrl',''))" 2>/dev/null) || true
-
-      if [ -n "$EXISTING_REDIRECT" ] && [ "$EXISTING_REDIRECT" != "None" ]; then
-        echo "  ✅  Connection already exists with redirectUrl: $EXISTING_REDIRECT"
-        REDIRECT_URL="$EXISTING_REDIRECT"
-      else
-        if [ -n "$EXISTING" ]; then
-          echo "  🗑️  Deleting existing connection without redirectUrl..."
-          az rest --method DELETE --url "${CONNECTION_URL}" 2>/dev/null || true
-          sleep 5
-        fi
-
-        REDIRECT_URL=""
-        # Try the canonical name first; fall back to a timestamped name if APIM
-        # has a stale connector registration for this name from a previous run.
-        for CONN_NAME in "${CONNECTION_NAME}" "${CONNECTION_NAME}-$(date +%s | tail -c 5)"; do
-          CONN_URL="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}/connections/${CONN_NAME}?api-version=2025-09-01"
-          echo "  📤  PUT ${CONN_URL}"
-          RESPONSE=$(az rest --method PUT \
-            --url "${CONN_URL}" \
-            --body "${BODY}" \
-            --headers "Content-Type=application/json" \
-            -o json 2>&1) || true
-          REDIRECT_URL=$(echo "${RESPONSE}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('properties',{}).get('redirectUrl',''))" 2>/dev/null) || true
-          if [ -n "$REDIRECT_URL" ] && [ "$REDIRECT_URL" != "None" ]; then
-            echo "  ✅  Created connection: ${CONN_NAME}"
-            break
-          fi
-          echo "  ⚠️  Failed (stale APIM registration for ${CONN_NAME}), trying fallback name..."
-        done
-      fi
-      if [ -n "$REDIRECT_URL" ] && [ "$REDIRECT_URL" != "None" ]; then
-        echo "  ✅  redirectUrl: $REDIRECT_URL"
-        echo ""
-        echo "  🔧  Patching app registration to include Foundry redirect URI..."
-        # Get app registration object ID from appId (client ID)
-        APP_OBJ_ID=$(az rest --method GET \
-          --url "https://graph.microsoft.com/v1.0/applications?\$filter=appId eq '${ENTRA_APP_CLIENT_ID}'" \
-          --query "value[0].id" -o tsv 2>/dev/null) || true
-        if [ -n "$APP_OBJ_ID" ] && [ "$APP_OBJ_ID" != "None" ]; then
-          # Fetch current publicClient.redirectUris
-          CURRENT_URIS=$(az rest --method GET \
-            --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJ_ID}" \
-            --query "publicClient.redirectUris" -o json 2>/dev/null) || true
-          # Add REDIRECT_URL if not already present, then PATCH
-          UPDATED_URIS=$(echo "${CURRENT_URIS}" | python3 -c "import sys,json; u=json.load(sys.stdin); r='${REDIRECT_URL}'; u.append(r) if r not in u else None; print(json.dumps(u))")
-          az rest --method PATCH \
-            --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJ_ID}" \
-            --body "{\"publicClient\":{\"redirectUris\":${UPDATED_URIS}}}" \
-            --headers "Content-Type=application/json" > /dev/null 2>&1 \
-            && echo "  ✅  Foundry redirect URI registered in app registration" \
-            || echo "  ⚠️  Could not patch app registration — add manually: ${REDIRECT_URL}"
-        else
-          echo "  ⚠️  Could not find app registration object ID — add redirect URI manually:"
-          echo "      Azure Portal → App registrations → ${WEB_APP_NAME}"
-          echo "      → Authentication → Mobile and desktop applications"
-          echo "      → Add URI: $REDIRECT_URL"
-        fi
-      else
-        echo "  ⚠️  redirectUrl not yet available — re-run 'azd provision' or check the connection in the Azure Portal"
-      fi
+      echo "  Connection : ${MCP_CONNECTION_NAME}"
+      echo "  redirectUrl: ${MCP_CONNECTION_REDIRECT_URL}"
       echo ""
   postdeploy:
     shell: sh
@@ -132,11 +45,23 @@ hooks:
         "${APP_SLOT_HOSTNAME}" "${ENTRA_APP_CLIENT_ID}" > client/.env
       echo "  📝  Wrote client/.env"
 
+      # Write server/.env for local development
+      printf 'TENANT_ID=%s\nCLIENT_ID=%s\nAUDIENCE=%s\nRESOURCE_HOST=%s\nPORT=8000\n' \
+        "${AZURE_TENANT_ID}" "${ENTRA_APP_CLIENT_ID}" "${ENTRA_APP_AUDIENCE}" \
+        "${APP_SLOT_HOSTNAME}" > server/.env
+      echo "  📝  Wrote server/.env"
+
       # Write agent_v2/.env for the Foundry agent script
       printf 'FOUNDRY_ENDPOINT=https://%s.cognitiveservices.azure.com/api/projects/%s\nMCP_SERVER_URL=https://%s/mcp\nMCP_CONNECTION_NAME=%s\nAGENT_MODEL=gpt-4o\n' \
         "${FOUNDRY_NAME}" "${FOUNDRY_PROJECT_NAME}" "${APP_SLOT_HOSTNAME}" \
-        "$(echo "${WEB_APP_NAME}" | cut -c1-23)" > agent_v2/.env
+        "${MCP_CONNECTION_NAME}" > agent_v2/.env
       echo "  📝  Wrote agent_v2/.env"
+
+      # Write .vscode/mcp.json with the live server URL
+      mkdir -p .vscode
+      printf '{\n  "servers": {\n    "cloud-helper-mcp": {\n      "type": "http",\n      "url": "https://%s/mcp"\n    }\n  }\n}\n' \
+        "${APP_SLOT_HOSTNAME}" > .vscode/mcp.json
+      echo "  📝  Wrote .vscode/mcp.json"
       echo ""
 
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -178,7 +178,7 @@ module mcpApis './modules/apps/apps-private-link.bicep' = {
     vnetResourceId: vnet.outputs.VIRTUAL_NETWORK_RESOURCE_ID
     peSubnetResourceId: vnet.outputs.VIRTUAL_NETWORK_SUBNETS.peSubnet.resourceId
     aiFoundryName: foundry.outputs.FOUNDRY_NAME
-    createMcpConnection: false
+    createMcpConnection: true
     apis: [
       {
         name: webAppName
@@ -192,6 +192,19 @@ module mcpApis './modules/apps/apps-private-link.bicep' = {
     ]
   }
   dependsOn: [aiProject]
+}
+
+// ── App Registration update — add Foundry redirect URI ────────────────────────
+// Runs after the MCP connection is created so the redirectUrl is known.
+// The Graph extension uses uniqueName as idempotency key — this updates the
+// existing app registration rather than creating a new one.
+module appRegsWithFoundry './modules/appRegistrations.bicep' = {
+  name: 'appRegistrationsFoundry-${environmentName}'
+  params: {
+    environmentName: environmentName
+    webAppName: webAppName
+    foundryRedirectUri: !empty(mcpApis.outputs.mcpConnectionRedirectUrls) ? mcpApis.outputs.mcpConnectionRedirectUrls[0] : ''
+  }
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────
@@ -211,3 +224,5 @@ output AZURE_OPENAI_CHAT_DEPLOYMENT_NAME string = chatDeploymentName
 output VNET_RESOURCE_ID string = vnet.outputs.VIRTUAL_NETWORK_RESOURCE_ID
 @description('MCP connection JSON payloads sent to ARM — inspect to troubleshoot Foundry connection failures.')
 output MCP_CONNECTION_PAYLOADS array = mcpApis.outputs.mcpConnectionPayloads
+output MCP_CONNECTION_NAME string = mcpApis.outputs.mcpConnectionName
+output MCP_CONNECTION_REDIRECT_URL string = !empty(mcpApis.outputs.mcpConnectionRedirectUrls) ? mcpApis.outputs.mcpConnectionRedirectUrls[0] : ''
