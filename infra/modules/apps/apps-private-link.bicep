@@ -66,49 +66,64 @@ module privateEndpoints '../networking/private-endpoint.bicep' = [
 
 // ── Foundry RemoteTool connections — OAuth2 (Entra) ──────────────────────────
 // authType 'OAuth2' with clientId triggers the PKCE/delegated auth flow.
-// Foundry acquires a token scoped to audience/mcp.access on behalf of the user.
+// Foundry connects to target (api.uri/mcp) and acquires a token scoped to
+// api.uri/mcp/mcp.access on behalf of the user.
 var loginEndpoint = environment().authentication.loginEndpoint
 var tenantId = tenant().tenantId
 
 // Build payloads as a variable so the full JSON is surfaced in outputs for
 // troubleshooting (run `azd provision` then check the mcpConnectionPayloads output).
+var loginBase = '${loginEndpoint}${tenantId}/oauth2/v2.0'
+
+// Build the connection name: strip the 'MCP-' prefix that was used historically,
+// truncate to 23 chars to stay within ARM name limits.
 var connectionPayloads = [
   for api in apis: {
-    name: 'MCP-${api.name}'
+    name: substring(api.name, 0, min(23, length(api.name)))
     properties: {
       category: 'RemoteTool'
-      target: api.uri
+      target: '${api.uri}/mcp'
       authType: 'OAuth2'
       isSharedToAll: true
-      credentials: {
-        clientId: api.clientId
-        authUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/authorize'
-      }
       metadata: {
         type: 'custom_MCP'
-        audience: api.audience
-        clientId: api.clientId
-        tokenUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
-        refreshUrl: '${loginEndpoint}${tenantId}/oauth2/v2.0/token'
-        scopes: '${api.audience}/mcp.access'
       }
+      credentials: {
+        clientId: api.clientId
+        clientSecret: ''
+      }
+      tokenUrl: '${loginBase}/token'
+      authorizationUrl: '${loginBase}/authorize'
+      refreshUrl: '${loginBase}/token'
+      scopes: [
+        '${api.uri}/mcp/mcp.access'
+        'offline_access'
+      ]
     }
   }
 ]
 
-resource foundry 'Microsoft.CognitiveServices/accounts@2026-01-15-preview' existing = {
+resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
   name: aiFoundryName
 }
 
-// createMcpConnection=false by default — the postprovision hook creates the connection
-// via az rest, which supports the full OAuth2 property set that Bicep types do not expose.
-resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2026-01-15-preview' = [
+// any() bypasses Bicep type validation for properties (tokenUrl, scopes, etc.)
+// that the SDK type definition omits but ARM accepts.
+resource mcpConnections 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = [
   for (payload, i) in (createMcpConnection ? connectionPayloads : []): {
     name: payload.name
     parent: foundry
-    properties: payload.properties
+    properties: any(payload.properties)
   }
 ]
 
 @description('Full JSON payloads sent to ARM for each MCP connection — use to verify properties before/after deployment.')
 output mcpConnectionPayloads array = connectionPayloads
+
+@description('redirectUrl returned by Foundry for each connection — must be registered in the Entra app registration.')
+output mcpConnectionRedirectUrls array = [
+  for (payload, i) in (createMcpConnection ? connectionPayloads : []): mcpConnections[i].properties.?redirectUrl ?? ''
+]
+
+@description('Name of the first MCP connection created (convenience output).')
+output mcpConnectionName string = createMcpConnection && !empty(connectionPayloads) ? connectionPayloads[0].name : ''
