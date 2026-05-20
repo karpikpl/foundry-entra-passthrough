@@ -14,6 +14,9 @@ param environmentName string
 @description('Web app name — used to add the HTTPS Application ID URI so Entra accepts RFC 8707 resource indicators from the MCP server.')
 param webAppName string
 
+@description('Optional: Foundry MCP connection redirectUrl to register in publicClient.redirectUris. Pass after connection is created.')
+param foundryRedirectUri string = ''
+
 var vscodeClientId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
 var azureCliClientId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
 
@@ -43,11 +46,11 @@ resource app 'Microsoft.Graph/applications@v1.0' = {
   isFallbackPublicClient: true  // Allows PKCE token exchange without client_secret (required for Foundry OAuth Identity Passthrough)
 
   publicClient: {
-    redirectUris: [
+    redirectUris: concat([
       'http://localhost'
       'http://127.0.0.1'
       'http://localhost:55899/callback'
-    ]
+    ], foundryRedirectUri != '' ? [foundryRedirectUri] : [])
   }
 
   web: {
