@@ -97,7 +97,6 @@ var connectionPayloads = [
       refreshUrl: '${loginBase}/token'
       scopes: [
         '${api.uri}/mcp/mcp.access'
-        'offline_access'
       ]
     }
   }
