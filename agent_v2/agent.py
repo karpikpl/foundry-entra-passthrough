@@ -43,7 +43,7 @@ from azure.ai.projects.aio import AIProjectClient
 from azure.ai.projects.models import MCPTool, PromptAgentDefinition
 from azure.identity.aio import DefaultAzureCredential
 from dotenv import load_dotenv
-from openai import NOT_GIVEN
+from openai import BadRequestError, NOT_GIVEN
 from openai.types.responses.response_input_param import McpApprovalResponse
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -64,7 +64,7 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
     mcp_url         = _require("MCP_SERVER_URL")
     connection_name = _require("MCP_CONNECTION_NAME")
     model           = os.environ.get("AGENT_MODEL", "gpt-4o")
-    agent_name      = os.environ.get("AGENT_NAME", "mcp-bro-agent")
+    agent_name      = os.environ.get("AGENT_NAME", "mcp-agent")
 
     # project_connection_id enables OAuth Identity Passthrough:
     # Foundry fetches a delegated token for the signed-in user via the named
@@ -84,9 +84,9 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
                 definition=PromptAgentDefinition(
                     model=model,
                     instructions=(
-                        "You're a Bro agent, who talks like a bro and acts like a bro. "
-                        "You're bro-code tells you to be chill, brutaly honest and helpful, but you also have to follow the rules of the MCP tool. "
-                        "When asked about the current user, call the whoami tool. "
+                        "You are a helpful assistant with access to MCP tools. "
+                        "Always start by calling the whoami tool to identify the current user. "
+                        "When greeted with a name, also call the hello tool passing that name."
                     ),
                     tools=[mcp_tool],
                 ),
@@ -107,17 +107,33 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
             retry = False
 
             while True:
-                response = await openai.responses.create(
-                    conversation=conversation.id if response_id is None else NOT_GIVEN,
-                    previous_response_id=response_id if response_id else NOT_GIVEN,
-                    extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
-                    input=pending_approvals or "",
-                )
+                try:
+                    response = await openai.responses.create(
+                        conversation=conversation.id if response_id is None else NOT_GIVEN,
+                        previous_response_id=response_id if response_id else NOT_GIVEN,
+                        extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
+                        input=pending_approvals or "",
+                    )
+                except BadRequestError as e:
+                    if e.code == "tool_user_error" and "Name or service not known" in str(e):
+                        print(
+                            "\n⏳  APIM connector is still initialising (DNS not yet propagated).\n"
+                            "    Wait a few seconds and run the agent again.\n"
+                        )
+                        return
+                    raise
                 response_id = response.id
                 pending_approvals = []
                 retry = False
 
+                print(f"    [debug] response items: {[getattr(i, 'type', '?') for i in response.output]}")
+
                 for item in response.output:
+                    item_type = getattr(item, "type", None)
+
+                    if item_type == "mcp_list_tools":
+                        tools = getattr(item, "tools", None) or item.__dict__.get("tools", [])
+                        print(f"    [debug] mcp_list_tools → {[getattr(t, 'name', t) for t in (tools or [])]}")
                     item_type = getattr(item, "type", None)
 
                     if item_type == "mcp_approval_request":
@@ -142,6 +158,16 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
                         else:
                             print(f"\n⚠️  OAuth consent required but no consent_link found.")
                         input("    Complete consent in the browser, then press Enter to continue...")
+                        # Create a fresh conversation after each consent so Foundry doesn't
+                        # see the "empty tools + consent" history from previous attempts.
+                        # Reusing the same conversation_id causes Foundry to skip re-listing
+                        # tools in the next response (it sees consent loops as "MCP unavailable").
+                        # APIM stores the consent token asynchronously, so the first run
+                        # may require two consents before tools become available.
+                        conversation = await openai.conversations.create(
+                            items=[{"type": "message", "role": "user", "content": prompt}]
+                        )
+                        print(f"    [debug] new conversation_id={conversation.id}")
                         response_id = None
                         retry = True
                         break
