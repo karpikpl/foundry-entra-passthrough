@@ -104,6 +104,7 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
             # Run + handle approval loop and OAuth consent requests
             response_id = None
             pending_approvals: list = []
+            retry = False
 
             while True:
                 try:
@@ -123,6 +124,7 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
                     raise
                 response_id = response.id
                 pending_approvals = []
+                retry = False
 
                 print(f"    [debug] response items: {[getattr(i, 'type', '?') for i in response.output]}")
 
@@ -156,15 +158,11 @@ async def run_agent(prompt: str, cleanup: bool) -> None:
                         else:
                             print(f"\n⚠️  OAuth consent required but no consent_link found.")
                         input("    Complete consent in the browser, then press Enter to continue...")
-                        # APIM stores the consent token asynchronously. Retrying in the same
-                        # process always races against APIM and triggers consent again.
-                        # Exit here — the next invocation will find the token cached and proceed.
-                        print(
-                            "\n✅  Consent recorded. Run the agent again to continue.\n"
-                        )
-                        return
+                        response_id = None
+                        retry = True
+                        break
 
-                if not pending_approvals:
+                if not pending_approvals and not retry:
                     break
 
             output_text = getattr(response, "output_text", None)
