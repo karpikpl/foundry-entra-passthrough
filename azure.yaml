@@ -132,11 +132,80 @@ hooks:
         "${APP_SLOT_HOSTNAME}" "${ENTRA_APP_CLIENT_ID}" > client/.env
       echo "  📝  Wrote client/.env"
 
+      # Defaults for the auto-created agent; override via `azd env set` before deploy.
+      AGENT_NAME="${AGENT_NAME:-cloud-helper-agent}"
+      AGENT_MODEL="${AGENT_MODEL:-gpt-4o}"
+      CONNECTION_NAME="$(echo "${WEB_APP_NAME}" | cut -c1-23)"
+
       # Write agent_v2/.env for the Foundry agent script
-      printf 'FOUNDRY_ENDPOINT=https://%s.cognitiveservices.azure.com/api/projects/%s\nMCP_SERVER_URL=https://%s/mcp\nMCP_CONNECTION_NAME=%s\nAGENT_MODEL=gpt-4o\n' \
+      printf 'FOUNDRY_ENDPOINT=https://%s.cognitiveservices.azure.com/api/projects/%s\nMCP_SERVER_URL=https://%s/mcp\nMCP_CONNECTION_NAME=%s\nAGENT_NAME=%s\nAGENT_MODEL=%s\n' \
         "${FOUNDRY_NAME}" "${FOUNDRY_PROJECT_NAME}" "${APP_SLOT_HOSTNAME}" \
-        "$(echo "${WEB_APP_NAME}" | cut -c1-23)" > agent_v2/.env
+        "${CONNECTION_NAME}" "${AGENT_NAME}" "${AGENT_MODEL}" > agent_v2/.env
       echo "  📝  Wrote agent_v2/.env"
+      echo ""
+
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🤖  Creating Foundry agent via REST"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      AGENT_API_VERSION="2025-11-15-preview"
+      PROJECT_ENDPOINT="https://${FOUNDRY_NAME}.cognitiveservices.azure.com/api/projects/${FOUNDRY_PROJECT_NAME}"
+      CONNECTION_ARM_PATH="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}/projects/${FOUNDRY_PROJECT_NAME}/connections/${CONNECTION_NAME}"
+
+      FOUNDRY_TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv 2>/dev/null) || FOUNDRY_TOKEN=""
+
+      if [ -z "$FOUNDRY_TOKEN" ]; then
+        echo "  ⚠️  Could not obtain ai.azure.com token — skipping agent creation"
+        echo "      (run 'az login' and retry with 'azd hooks run postdeploy')"
+      else
+        # Build JSON body — python handles all string escaping safely.
+        # Single-quoted python source; values pulled from env to avoid shell quoting traps.
+        AGENT_BODY=$(AGENT_MODEL="${AGENT_MODEL}" \
+                     APP_SLOT_HOSTNAME="${APP_SLOT_HOSTNAME}" \
+                     CONNECTION_ARM_PATH="${CONNECTION_ARM_PATH}" \
+          python3 -c '
+import json, os
+host = os.environ["APP_SLOT_HOSTNAME"]
+body = {
+    "description": "Cloud Helper agent for the MCP OAuth demo. Calls the MCP server with OAuth identity passthrough.",
+    "definition": {
+        "kind": "prompt",
+        "model": os.environ["AGENT_MODEL"],
+        "instructions": (
+            "You are a helpful agent that uses MCP tools to assist users. "
+            "When asked who the user is, call the whoami tool. "
+            "When asked to greet someone, call the hello tool."
+        ),
+        "tools": [{
+            "type": "mcp",
+            "server_label": "cloud_helper_mcp",
+            "server_url": "https://" + host + "/mcp",
+            "project_connection_id": os.environ["CONNECTION_ARM_PATH"],
+            "require_approval": "always",
+        }],
+    },
+}
+print(json.dumps(body))
+')
+
+        AGENT_URL="${PROJECT_ENDPOINT}/agents/${AGENT_NAME}/versions?api-version=${AGENT_API_VERSION}"
+        echo "  📤  POST ${AGENT_URL}"
+
+        AGENT_RESPONSE=$(curl -sS -X POST "${AGENT_URL}" \
+          -H "Authorization: Bearer ${FOUNDRY_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "${AGENT_BODY}")
+
+        AGENT_VERSION=$(echo "${AGENT_RESPONSE}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null) || AGENT_VERSION=""
+
+        if [ -n "$AGENT_VERSION" ] && [ "$AGENT_VERSION" != "None" ]; then
+          echo "  ✅  Agent created: ${AGENT_NAME} (version ${AGENT_VERSION})"
+        else
+          echo "  ⚠️  Agent creation failed. Response:"
+          echo "${AGENT_RESPONSE}" | head -c 1000
+          echo ""
+        fi
+      fi
       echo ""
 
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
