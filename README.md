@@ -144,6 +144,22 @@ uv run agent.py --prompt "Who am I? Call the whoami tool."
 
 On first run the agent opens a browser for one-time OAuth consent; subsequent runs are silent.
 
+## Container Image (GHCR)
+
+A multi-arch (linux/amd64, linux/arm64) image is published to GitHub Container Registry on every `v*.*.*` git tag:
+
+```bash
+docker pull ghcr.io/karpikpl/mcp-oauth:latest
+
+docker run --rm -p 8000:8000 \
+  -e TENANT_ID="<entra-tenant-id>" \
+  -e CLIENT_ID="<mcp-app-client-id>" \
+  -e RESOURCE_HOST="<public-hostname>" \
+  ghcr.io/karpikpl/mcp-oauth:latest
+```
+
+`RESOURCE_HOST` must be the public hostname clients use to reach the server — it's baked into the issued audience and the `/.well-known/oauth-protected-resource` document. Cut a release with `git tag v0.1.0 && git push origin v0.1.0`; the `release.yml` workflow builds, signs (cosign keyless), and pushes with semver tags (`latest`, `0.1.0`, `0.1`, `0`).
+
 ## References
 
 - [FastMCP](https://github.com/jlowin/fastmcp)
