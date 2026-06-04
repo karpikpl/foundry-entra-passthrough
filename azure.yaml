@@ -158,35 +158,13 @@ hooks:
         echo "  ⚠️  Could not obtain ai.azure.com token — skipping agent creation"
         echo "      (run 'az login' and retry with 'azd hooks run postdeploy')"
       else
-        # Build JSON body — python handles all string escaping safely.
-        # Single-quoted python source; values pulled from env to avoid shell quoting traps.
+        # Build JSON body via python — handles all string escaping safely.
+        # Source kept on one logical line so YAML literal-block indentation
+        # stays consistent (lines at column 0 would terminate the block).
         AGENT_BODY=$(AGENT_MODEL="${AGENT_MODEL}" \
                      APP_SLOT_HOSTNAME="${APP_SLOT_HOSTNAME}" \
                      CONNECTION_ARM_PATH="${CONNECTION_ARM_PATH}" \
-          python3 -c '
-import json, os
-host = os.environ["APP_SLOT_HOSTNAME"]
-body = {
-    "description": "Cloud Helper agent for the MCP OAuth demo. Calls the MCP server with OAuth identity passthrough.",
-    "definition": {
-        "kind": "prompt",
-        "model": os.environ["AGENT_MODEL"],
-        "instructions": (
-            "You are a helpful agent that uses MCP tools to assist users. "
-            "When asked who the user is, call the whoami tool. "
-            "When asked to greet someone, call the hello tool."
-        ),
-        "tools": [{
-            "type": "mcp",
-            "server_label": "cloud_helper_mcp",
-            "server_url": "https://" + host + "/mcp",
-            "project_connection_id": os.environ["CONNECTION_ARM_PATH"],
-            "require_approval": "always",
-        }],
-    },
-}
-print(json.dumps(body))
-')
+          python3 -c "import json,os; print(json.dumps({'description':'Cloud Helper agent for the MCP OAuth demo. Calls the MCP server with OAuth identity passthrough.','definition':{'kind':'prompt','model':os.environ['AGENT_MODEL'],'instructions':'You are a helpful agent that uses MCP tools to assist users. When asked who the user is, call the whoami tool. When asked to greet someone, call the hello tool.','tools':[{'type':'mcp','server_label':'cloud_helper_mcp','server_url':'https://'+os.environ['APP_SLOT_HOSTNAME']+'/mcp','project_connection_id':os.environ['CONNECTION_ARM_PATH'],'require_approval':'always'}]}}))")
 
         AGENT_URL="${PROJECT_ENDPOINT}/agents/${AGENT_NAME}/versions?api-version=${AGENT_API_VERSION}"
         echo "  📤  POST ${AGENT_URL}"
